@@ -7,8 +7,8 @@
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
 // @supportURL   https://github.com/jsantacruzu-ui/aula-ai
-// @updateURL    https://aula-ai.jsantacruzu.workers.dev/aula-ai.user.js
-// @downloadURL  https://aula-ai.jsantacruzu.workers.dev/aula-ai.user.js
+// @updateURL    https://raw.githubusercontent.com/jsantacruzu-ui/aula-ai/main/aula-ai/aula-ai.user.js
+// @downloadURL  https://raw.githubusercontent.com/jsantacruzu-ui/aula-ai/main/aula-ai/aula-ai.user.js
 // @match        http://*/*
 // @match        https://*/*
 // @exclude      https://app.hubspot.com/*
