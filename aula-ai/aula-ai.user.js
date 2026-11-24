@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.18
+// @version      0.3.19
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -281,9 +281,7 @@
     if (!element || !element.matches) return false;
 
     // Las opciones y elementos del menú no son cuadros que debamos abrir.
-    if (element.matches('[role="option"],[role="menuitem"],[data-value],li[tabindex]')) {
-      return false;
-    }
+    if (isDropdownOption(element)) return false;
 
     const role = (element.getAttribute("role") || "").toLowerCase();
     const popup = (element.getAttribute("aria-haspopup") || "").toLowerCase();
@@ -424,6 +422,8 @@
     // No abrir otra lista mientras ya haya un menú de opciones visible.
     const visibleMenu = allElements(
       '[role="listbox"],[role="menu"],[class*="dropdown-menu" i],[class*="select-menu" i]'
+    ).some(isVisible) || allElements(
+      '[role="option"],[role="menuitem"]'
     ).some(isVisible);
 
     if (visibleMenu) return "";
