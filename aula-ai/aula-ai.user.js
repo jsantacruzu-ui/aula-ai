@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.3
+// @version      0.3.4
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -414,6 +414,15 @@
   }
 
   function findPlayButton() {
+    // Cambridge One usa un reproductor propio:
+    // <figure class="audio v_a_media"> con <button class="play"
+    // aria-label="Play/pause:">. Lo priorizamos antes que otros botones.
+    const playerButtons = allElements(
+      ".audio.v_a_media button.play, .audio button.play, button.play"
+    ).filter(isVisible);
+
+    if (playerButtons.length) return playerButtons[0];
+
     const selectors = [
       "button",
       '[role="button"]',
@@ -423,19 +432,20 @@
       '[class*="play" i]'
     ].join(",");
 
-    const candidates = allElements(selectors)
-      .filter(isVisible);
+    const candidates = allElements(selectors).filter(isVisible);
 
     return candidates.find(element => {
       const label = (
         element.getAttribute("aria-label") ||
         element.getAttribute("title") ||
         element.getAttribute("data-testid") ||
+        element.className ||
         element.innerText ||
         ""
       ).trim().toLowerCase();
 
       return (
+        /\b(play|listen|reproducir|escuchar)\s*(\/|\-|and)?\s*(pause|pausar)?\b/i.test(label) ||
         /^(play|play audio|listen|listen audio|reproducir|reproducir audio|escuchar|iniciar audio)$/i.test(label) ||
         /^(play|listen|reproducir|escuchar)[-_ ]button$/i.test(label)
       );
@@ -794,7 +804,8 @@
         1100 / Math.max(width, height)
       );
 
-      const canvas = document.createElement("canvas");
+      const ownerDocument = source.ownerDocument || document;
+      const canvas = ownerDocument.createElement("canvas");
 
       canvas.width = Math.max(
         1,
@@ -833,7 +844,7 @@
       );
 
       if (dataUrl.length > MAX_IMAGE_SIZE) {
-        const smaller = document.createElement("canvas");
+        const smaller = ownerDocument.createElement("canvas");
 
         smaller.width = Math.round(canvas.width * 0.65);
         smaller.height = Math.round(canvas.height * 0.65);
