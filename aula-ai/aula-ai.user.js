@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.22
+// @version      0.3.23
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -599,6 +599,63 @@
             !!element.checked
         });
       }
+    }
+
+    // Las actividades de asociación visual pueden usar imágenes como
+    // respuestas. Registrar únicamente imágenes con un contenedor clicable.
+    // El orden coincide con captureImages(): de mayor a menor tamaño.
+    const clickableImages = allElements("img")
+      .filter(image =>
+        isVisible(image) &&
+        image.complete &&
+        image.naturalWidth > 0
+      )
+      .sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        return rb.width * rb.height - ra.width * ra.height;
+      });
+
+    let imageNumber = 0;
+    for (const image of clickableImages) {
+      if (imageNumber >= 3) break;
+
+      let target = image.closest('button,[role="button"],a,[tabindex]');
+      if (!target) {
+        let parent = image.parentElement;
+        for (let level = 0; level < 4 && parent; level++, parent = parent.parentElement) {
+          const view = parent.ownerDocument?.defaultView || window;
+          if (view.getComputedStyle(parent).cursor === "pointer") {
+            target = parent;
+            break;
+          }
+        }
+      }
+
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+
+      const index = controls.length;
+      indexedControls.set(index, target);
+      target.setAttribute("data-aula-ai-index", String(index));
+      imageNumber++;
+
+      controls.push({
+        control_index: index,
+        type: "image",
+        image_number: imageNumber,
+        label: String(
+          image.alt ||
+          image.getAttribute("aria-label") ||
+          image.getAttribute("title") ||
+          target.getAttribute("aria-label") ||
+          target.innerText ||
+          `Imagen clicable ${imageNumber}`
+        ).trim().slice(0, 220),
+        value: "",
+        options: [],
+        disabled: !!target.disabled
+      });
     }
 
     return {
@@ -1753,6 +1810,17 @@
             details.push(action.question || "Opción seleccionada");
           }
         }
+
+      } else if (
+        action.action === "click_image" &&
+        element.tagName !== "INPUT" &&
+        !element.disabled
+      ) {
+        // Selección visual: el índice apunta al contenedor interactivo
+        // de la imagen (botón, enlace o wrapper con cursor pointer).
+        element.click();
+        applied++;
+        details.push(action.question || `Imagen ${action.image_number || ""} seleccionada`);
 
       } else if (action.action === "click") {
         const label = (
