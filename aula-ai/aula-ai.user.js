@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.9
+// @version      0.3.10
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1177,6 +1177,98 @@
     }
   }
 
+  // Convierte cualquier imagen descargada (incluidos GIF y SVG) a JPEG.
+  // El servidor de Aula AI solo admite JPEG, PNG y WebP.
+  async function drawableToJpeg(drawable, ownerDocument) {
+    const doc = ownerDocument || document;
+    const width =
+      drawable.naturalWidth ||
+      drawable.videoWidth ||
+      drawable.width ||
+      0;
+    const height =
+      drawable.naturalHeight ||
+      drawable.videoHeight ||
+      drawable.height ||
+      0;
+
+    if (!width || !height) return "";
+
+    const scale = Math.min(1, 1100 / Math.max(width, height));
+    const canvas = doc.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(drawable, 0, 0, canvas.width, canvas.height);
+
+    let dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+
+    // Reducir tamaño cuando la imagen siga siendo demasiado pesada.
+    for (let attempt = 0; dataUrl.length > MAX_IMAGE_SIZE && attempt < 3; attempt++) {
+      const smaller = doc.createElement("canvas");
+      smaller.width = Math.max(1, Math.round(canvas.width * Math.pow(0.72, attempt + 1)));
+      smaller.height = Math.max(1, Math.round(canvas.height * Math.pow(0.72, attempt + 1)));
+
+      const smallerContext = smaller.getContext("2d");
+      if (!smallerContext) return "";
+
+      smallerContext.fillStyle = "#ffffff";
+      smallerContext.fillRect(0, 0, smaller.width, smaller.height);
+      smallerContext.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+      dataUrl = smaller.toDataURL("image/jpeg", 0.68);
+    }
+
+    return /^data:image\/jpeg;base64,/i.test(dataUrl) &&
+      dataUrl.length <= MAX_IMAGE_SIZE
+      ? dataUrl
+      : "";
+  }
+
+  async function blobToJpegDataUrl(blob, ownerDocument) {
+    const doc = ownerDocument || document;
+    let bitmap = null;
+    let objectUrl = "";
+
+    try {
+      if (typeof createImageBitmap === "function") {
+        try {
+          bitmap = await createImageBitmap(blob);
+          return await drawableToJpeg(bitmap, doc);
+        } catch (error) {
+          console.warn("Aula AI: createImageBitmap no pudo decodificar la imagen; se probará Image().", error.message);
+        }
+      }
+
+      // Alternativa para navegadores o formatos que no soportan createImageBitmap.
+      objectUrl = URL.createObjectURL(blob);
+      const image = doc.createElement("img");
+
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("El navegador no pudo abrir el archivo de imagen."));
+        image.src = objectUrl;
+      });
+
+      return await drawableToJpeg(image, doc);
+    } catch (error) {
+      console.warn("Aula AI: no se pudo convertir la imagen a JPEG:", error.message);
+      return "";
+    } finally {
+      if (bitmap && typeof bitmap.close === "function") {
+        bitmap.close();
+      }
+
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    }
+  }
+
   // Si el navegador bloquea el canvas por una imagen de otro origen,
   // descargamos el recurso con el permiso de Tampermonkey.
   async function captureImageElement(image, description) {
@@ -1210,12 +1302,18 @@
               return;
             }
 
-            const dataUrl = await blobToDataUrl(blob);
-            if (!dataUrl.startsWith("data:image/") || dataUrl.length > MAX_IMAGE_SIZE) {
+            const dataUrl = await blobToJpegDataUrl(
+              blob,
+              image.ownerDocument || document
+            );
+
+            if (!dataUrl) {
+              console.warn("Aula AI: no se pudo convertir la imagen descargada a JPEG:", url);
               resolve(null);
               return;
             }
 
+            // Nunca enviar SVG, GIF, AVIF u otro MIME no admitido.
             resolve({ dataUrl, description });
           } catch (error) {
             console.warn("Aula AI: error al preparar imagen:", error.message, url);
