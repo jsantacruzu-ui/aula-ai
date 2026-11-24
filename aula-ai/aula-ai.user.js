@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.16
+// @version      0.3.17
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -46,6 +46,8 @@
   // Conserva referencias reales a controles, incluso si están dentro
   // de un iframe accesible. querySelector del documento principal no basta.
   const indexedControls = new Map();
+  const dropdownElementIds = new WeakMap();
+  let nextDropdownElementId = 1;
 
   const TOP = window.top === window.self;
 
@@ -278,7 +280,7 @@
   function isCustomDropdown(element) {
     if (!element || !element.matches) return false;
 
-    // Las opciones pertenecen a la lista, no son cuadros que debamos abrir.
+    // Las opciones y elementos del menú no son cuadros que debamos abrir.
     if (element.matches('[role="option"],[role="menuitem"],[data-value],li[tabindex]')) {
       return false;
     }
@@ -294,8 +296,13 @@
       popup === "menu"
     ) return true;
 
+    // No confundir las filas de opciones con el botón que abre el menú.
+    if (/option|menuitem|dropdown-item|select-item|list-item/.test(classes + " " + testId)) {
+      return false;
+    }
+
     const classSuggestsDropdown =
-      /select|dropdown|combobox|answer.?choice|choice.?select/.test(classes) ||
+      /select|dropdown|combobox/.test(classes) ||
       /select|dropdown|combobox/.test(testId);
 
     if (!classSuggestsDropdown) return false;
@@ -316,9 +323,15 @@
       ""
     ).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
 
+    let uniqueId = dropdownElementIds.get(element);
+    if (!uniqueId) {
+      uniqueId = nextDropdownElementId++;
+      dropdownElementIds.set(element, uniqueId);
+    }
+
     const id = element.id || "";
     const classes = String(element.className || "").toLowerCase().slice(0, 100);
-    return [element.tagName, id, text, classes].join("|");
+    return [uniqueId, element.tagName, id, text, classes].join("|");
   }
 
   function getCustomDropdownOptions(element) {
@@ -388,6 +401,13 @@
   }
 
   function openNextDropdown(openedDropdownKeys) {
+    // No abrir otra lista mientras ya haya un menú de opciones visible.
+    const visibleMenu = allElements(
+      '[role="listbox"],[role="menu"],[class*="dropdown-menu" i],[class*="select-menu" i]'
+    ).some(isVisible);
+
+    if (visibleMenu) return "";
+
     const candidates = allElements(
       'select,[role="combobox"],[aria-haspopup="listbox"],[aria-haspopup="menu"],button,[role="button"],[class*="dropdown" i],[class*="select" i]'
     ).filter(element =>
@@ -1971,6 +1991,10 @@
             `${result.summary || result.stop_reason || "La IA no identificó una pregunta resoluble."}\n` +
             `Imágenes: ${visual.images.length}. ` +
             `Controles: ${snapshot.controls.length}. ` +
+            `Listas detectadas: ${snapshot.controls.filter(control => control.dropdown || control.type === "select").map(control => {
+              const choices = (control.options || []).map(option => option.text).join(" / ");
+              return `${control.label || control.type}${control.expanded ? " (abierta)" : ""}${choices ? ": " + choices : ""}`;
+            }).join("; ") || "ninguna"}\n` +
             `Audio: ${audio.audioBase64 ? "transmitido para transcripción" : audio.note}\n` +
             `${visual.skipped.join(" ")}`
           );
