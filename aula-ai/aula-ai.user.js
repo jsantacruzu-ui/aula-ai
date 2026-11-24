@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.24
+// @version      0.3.25
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1876,55 +1876,93 @@
   }
 
   async function clickNext() {
-    const selectors =
-      'button,[role="button"],input[type="button"],a';
+    const normalize = value =>
+      String(value || "").replace(/\\s+/g, " ").trim();
 
-    const getLabel = element => (
-      element.innerText ||
-      element.value ||
-      element.getAttribute("aria-label") ||
-      element.getAttribute("title") ||
-      ""
-    ).replace(/\s+/g, " ").trim().toLowerCase();
+    const labelValues = element => [
+      element.innerText,
+      element.textContent,
+      element.value,
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("data-testid")
+    ].map(normalize).filter(Boolean);
 
-    const getVisibleButtons = () =>
-      allElements(selectors).filter(isVisible);
+    const isClickable = element => {
+      if (!element || !element.matches) return false;
+      if (element.matches('button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex]')) return true;
+      const view = element.ownerDocument?.defaultView || window;
+      const style = view.getComputedStyle(element);
+      return style.cursor === "pointer" ||
+        /button|btn|next|check|continue|action/i.test(String(element.className || ""));
+    };
 
-    const isNextLabel = label =>
-      /^(next|siguiente|continuar|continue|next question|próxima|avanzar|›|→)$/i.test(label);
+    const findAction = (kind) => {
+      const pattern = kind === "check"
+        ? /^(check|check answer|check answers|check my answers|comprobar|comprobar respuesta|comprobar respuestas)$/i
+        : /^(next|next question|siguiente|continuar|continue|próxima|avanzar|›|→)$/i;
 
-    const findNext = () =>
-      getVisibleButtons().find(element => isNextLabel(getLabel(element)));
+      const selectors = 'button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex],[aria-label],[title],[data-testid]';
+      const interactive = allElements(selectors)
+        .filter(isVisible)
+        .find(element => labelValues(element).some(label => pattern.test(label)));
 
-    // Cambridge puede mostrar primero Check (verde) y después Next (azul).
-    const existingNext = findNext();
-    if (existingNext) {
-      existingNext.click();
+      if (interactive) return interactive;
+
+      // Cambridge a veces dibuja Check/Next como DIV o SPAN sin role=button.
+      // Buscar el texto exacto y subir hasta el contenedor que recibe el clic.
+      const textMatches = allElements("*")
+        .filter(element => isVisible(element))
+        .filter(element => {
+          const text = normalize(element.innerText || element.textContent);
+          return text && pattern.test(text) && text.length <= 50;
+        })
+        .sort((a, b) =>
+          normalize(a.innerText || a.textContent).length -
+          normalize(b.innerText || b.textContent).length
+        );
+
+      for (const match of textMatches) {
+        let current = match;
+        for (let level = 0; level < 7 && current; level++, current = current.parentElement) {
+          if (!isVisible(current)) continue;
+          if (isClickable(current)) return current;
+        }
+        if (match) return match;
+      }
+
+      return null;
+    };
+
+    // Después de responder, primero intentar Check. Puede ser un DIV/SPAN,
+    // no necesariamente un BUTTON nativo de Cambridge.
+    const checkButton = findAction("check");
+    if (checkButton) {
+      checkButton.click();
+
+      // Cambridge muestra el botón azul Next después de comprobar.
+      const deadline = Date.now() + 12000;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const nextButton = findAction("next");
+        if (nextButton) {
+          nextButton.click();
+          return true;
+        }
+      }
+
+      // Se hizo clic en Check: no tratarlo como el final de la actividad.
       return true;
     }
 
-    const checkButton = getVisibleButtons().find(element =>
-      /^check$/i.test(getLabel(element))
-    );
-
-    if (!checkButton) return false;
-
-    checkButton.click();
-
-    // Esperar a que Cambridge evalúe la respuesta y muestre Next.
-    const deadline = Date.now() + 7000;
-    while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const nextButton = findNext();
-      if (nextButton) {
-        nextButton.click();
-        return true;
-      }
+    // Algunas actividades muestran Next directamente, sin botón Check.
+    const nextButton = findAction("next");
+    if (nextButton) {
+      nextButton.click();
+      return true;
     }
 
-    // Check se pulsó; si Next tarda o no aparece, el siguiente ciclo
-    // volverá a leer el estado sin pulsar controles desconocidos.
-    return true;
+    return false;
   }
 
   // Envía o comprueba las respuestas únicamente al llegar al final,
