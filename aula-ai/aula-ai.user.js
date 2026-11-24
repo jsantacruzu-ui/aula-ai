@@ -856,11 +856,11 @@
       ...[...player.querySelectorAll("[aria-label]")].map(el => el.getAttribute("aria-label") || "")
     ].join(" ").toLowerCase();
 
-    if (/(^|\\s)(playing|is-playing|pause|pausar)(\\s|$)/i.test(stateText)) {
+    if (/(^|\s)(playing|is-playing|pause|pausar)(\s|$)/i.test(stateText)) {
       return true;
     }
 
-    const times = [...(player.innerText || "").matchAll(/\\b(\\d{1,2}):(\\d{2})\\b/g)]
+    const times = [...(player.innerText || "").matchAll(/\b(\d{1,2}):(\d{2})\b/g)]
       .map(match => Number(match[1]) * 60 + Number(match[2]));
 
     return times.length >= 2 &&
@@ -869,7 +869,7 @@
   }
 
   function cambridgeDurationMs(player) {
-    const times = [...(player?.innerText || "").matchAll(/\\b(\\d{1,2}):(\\d{2})\\b/g)]
+    const times = [...(player?.innerText || "").matchAll(/\b(\d{1,2}):(\d{2})\b/g)]
       .map(match => Number(match[1]) * 60 + Number(match[2]));
 
     const duration = times.length >= 2
@@ -1184,7 +1184,7 @@
     if (direct) return direct;
 
     const url = image.currentSrc || image.src || "";
-    if (!/^https?:\\/\\//i.test(url)) return null;
+    if (!/^https?:\/\//i.test(url)) return null;
 
     return new Promise(resolve => {
       GM_xmlhttpRequest({
