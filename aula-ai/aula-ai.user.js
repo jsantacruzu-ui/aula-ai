@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.2
+// @version      0.3.3
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1639,22 +1639,33 @@
       sendToChildFrames(data);
 
       if (data.type === "RUN") {
-        // También se intenta activar el reproductor
-        // en el marco donde está ejecutándose el script.
-        const audioPromise = data.captureAudio
-          ? startAudioCaptureFromClick()
-          : Promise.resolve({
-              audioBase64: "",
-              note: "Captura desactivada."
-            });
+        // Si el documento padre puede leer este marco, el análisis
+        // principal ya lo incluye. Evitamos enviar dos veces la misma
+        // actividad a la IA. Los marcos de otro origen se analizan aquí.
+        let parentCanReadThisFrame = false;
 
-        analyzeFrame(
-          data.runId,
-          data.maxQuestions,
-          data.automatic,
-          data.captureAudio,
-          audioPromise
-        );
+        try {
+          parentCanReadThisFrame = !!window.parent.document;
+        } catch {
+          parentCanReadThisFrame = false;
+        }
+
+        if (!parentCanReadThisFrame) {
+          const audioPromise = data.captureAudio
+            ? startAudioCaptureFromClick()
+            : Promise.resolve({
+                audioBase64: "",
+                note: "Captura desactivada."
+              });
+
+          analyzeFrame(
+            data.runId,
+            data.maxQuestions,
+            data.automatic,
+            data.captureAudio,
+            audioPromise
+          );
+        }
       }
 
       if (data.type === "STOP") {
