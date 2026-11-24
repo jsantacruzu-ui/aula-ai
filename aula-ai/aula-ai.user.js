@@ -195,16 +195,34 @@
 
   function isVisible(element) {
     try {
+      // Importante: Cambridge One coloca la actividad dentro de un
+      // iframe. Obtener estilos desde la ventana propietaria evita
+      // problemas al consultar elementos de otro documento.
+      const view = element.ownerDocument?.defaultView || window;
       const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
+      const style = view.getComputedStyle(element);
 
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        Number(style.opacity || 1) > 0
-      );
+      if (
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity || 1) <= 0
+      ) {
+        return false;
+      }
+
+      // No exigimos que el INPUT interno esté visible: Cambridge dibuja
+      // la opción en un DIV con role="radio" y oculta el input real.
+      if (
+        element.getAttribute("role") === "radio" ||
+        element.getAttribute("role") === "checkbox" ||
+        element.getAttribute("role") === "option"
+      ) {
+        return true;
+      }
+
+      return true;
     } catch {
       return false;
     }
@@ -261,6 +279,10 @@
     const textParts = [];
     const controls = [];
     const seen = new Set();
+
+    // Los índices se reconstruyen en cada pregunta para no reutilizar
+    // referencias antiguas cuando Cambridge cambia de ejercicio.
+    indexedControls.clear();
 
     const selector = [
       'input:not([type="hidden"])',
@@ -363,7 +385,11 @@
           placeholder:
             element.getAttribute("placeholder") || "",
           options,
-          disabled: !!element.disabled
+          disabled: !!element.disabled,
+          checked:
+            element.getAttribute("aria-checked") === "true" ||
+            element.getAttribute("aria-selected") === "true" ||
+            !!element.checked
         });
       }
     }
