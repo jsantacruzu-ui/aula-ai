@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Aula AI — Asistente automático",
+  "version": "0.1.0",
+  "description": "Analiza actividades educativas en páginas web y ayuda a responderlas.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://olkhplrgtcxrrnpmbjgd.supabase.co/*",
+    "https://aula-ai.jsantacruzu.workers.dev/*"
+  ],
+  "optional_host_permissions": [],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Aula AI"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
