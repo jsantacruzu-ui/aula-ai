@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.23
+// @version      0.3.24
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -602,9 +602,10 @@
     }
 
     // Las actividades de asociación visual pueden usar imágenes como
-    // respuestas. Registrar únicamente imágenes con un contenedor clicable.
-    // El orden coincide con captureImages(): de mayor a menor tamaño.
-    const clickableImages = allElements("img")
+    // respuestas. Registrar las cuatro imágenes principales aunque Cambridge
+    // no las etiquete como botones: el clic en IMG también burbujea al wrapper.
+    // Mantener exactamente el mismo orden que captureImages().
+    const imageOptions = allElements("img")
       .filter(image =>
         isVisible(image) &&
         image.complete &&
@@ -614,16 +615,14 @@
         const ra = a.getBoundingClientRect();
         const rb = b.getBoundingClientRect();
         return rb.width * rb.height - ra.width * ra.height;
-      });
+      })
+      .slice(0, MAX_IMAGES);
 
-    for (const image of clickableImages) {
-      const imageNumber = clickableImages.indexOf(image) + 1;
-      if (imageNumber > 3) break;
-
+    imageOptions.forEach((image, position) => {
       let target = image.closest('button,[role="button"],a,[tabindex]');
       if (!target) {
         let parent = image.parentElement;
-        for (let level = 0; level < 4 && parent; level++, parent = parent.parentElement) {
+        for (let level = 0; level < 5 && parent; level++, parent = parent.parentElement) {
           const view = parent.ownerDocument?.defaultView || window;
           if (view.getComputedStyle(parent).cursor === "pointer") {
             target = parent;
@@ -632,30 +631,35 @@
         }
       }
 
-      if (!target || seen.has(target)) continue;
-      seen.add(target);
+      // Si no hay un wrapper semántico/pointer, se hace clic en la propia imagen.
+      // El evento click burbujea y activa los manejadores delegados de Cambridge.
+      if (!target) target = image;
 
       const index = controls.length;
       indexedControls.set(index, target);
-      target.setAttribute("data-aula-ai-index", String(index));
+
+      const surroundingText = String(
+        target.innerText ||
+        target.getAttribute("aria-label") ||
+        target.getAttribute("title") ||
+        ""
+      ).trim();
+
+      const label = [
+        image.alt || image.getAttribute("aria-label") || image.getAttribute("title") || "",
+        surroundingText
+      ].filter(Boolean).join(" — ");
 
       controls.push({
         control_index: index,
         type: "image",
-        image_number: imageNumber,
-        label: String(
-          image.alt ||
-          image.getAttribute("aria-label") ||
-          image.getAttribute("title") ||
-          target.getAttribute("aria-label") ||
-          target.innerText ||
-          `Imagen clicable ${imageNumber}`
-        ).trim().slice(0, 220),
+        image_number: position + 1,
+        label: (label || `Opción visual número ${position + 1}`).slice(0, 300),
         value: "",
         options: [],
         disabled: !!target.disabled
       });
-    }
+    });
 
     return {
       title: document.title || "Actividad",
@@ -1619,10 +1623,13 @@
         return rb.width * rb.height - ra.width * ra.height;
       });
 
-    for (const image of imageElements) {
-      if (images.length >= 3) break;
+    for (let imagePosition = 0; imagePosition < imageElements.length; imagePosition++) {
+      if (images.length >= MAX_IMAGES) break;
+      const image = imageElements[imagePosition];
+      const imageNumber = imagePosition + 1;
 
       const description =
+        `Opción visual número ${imageNumber} de ${Math.min(imageElements.length, MAX_IMAGES)}. ` +
         "Imagen de la actividad: " +
         (image.alt || "sin descripción");
 
@@ -2106,7 +2113,8 @@
             runId,
             `No se encontraron respuestas aplicables. ` +
             `${result.summary || result.stop_reason || "La IA no identificó una pregunta resoluble."}\n` +
-            `Imágenes: ${visual.images.length}. ` +
+            `Imágenes capturadas: ${visual.images.length}. ` +
+            `Opciones de imagen detectadas: ${snapshot.controls.filter(control => control.type === "image").length}. ` +
             `Controles: ${snapshot.controls.length}. ` +
             `Listas detectadas: ${snapshot.controls.filter(control => control.dropdown || control.type === "select").map(control => {
               const choices = (control.options || []).map(option => option.text).join(" / ");
