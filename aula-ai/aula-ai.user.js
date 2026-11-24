@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.21
+// @version      0.3.22
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1801,36 +1801,55 @@
     return { applied, details, openedDropdowns };
   }
 
-  function clickNext() {
-    const elements = allElements(
-      'button,[role="button"],input[type="button"],a'
-    ).filter(isVisible);
+  async function clickNext() {
+    const selectors =
+      'button,[role="button"],input[type="button"],a';
 
-    const next = elements.find(element => {
-      const label = (
-        element.innerText ||
-        element.value ||
-        element.getAttribute("aria-label") ||
-        ""
-      ).trim().toLowerCase();
+    const getLabel = element => (
+      element.innerText ||
+      element.value ||
+      element.getAttribute("aria-label") ||
+      element.getAttribute("title") ||
+      ""
+    ).replace(/\s+/g, " ").trim().toLowerCase();
 
-      if (!label) return false;
+    const getVisibleButtons = () =>
+      allElements(selectors).filter(isVisible);
 
-      if (
-        /submit|finish|finalizar|entregar|enviar|terminar|salir|exit|complete|send|check answers|comprobar/i.test(label)
-      ) {
-        return false;
+    const isNextLabel = label =>
+      /^(next|siguiente|continuar|continue|next question|próxima|avanzar|›|→)$/i.test(label);
+
+    const findNext = () =>
+      getVisibleButtons().find(element => isNextLabel(getLabel(element)));
+
+    // Cambridge puede mostrar primero Check (verde) y después Next (azul).
+    const existingNext = findNext();
+    if (existingNext) {
+      existingNext.click();
+      return true;
+    }
+
+    const checkButton = getVisibleButtons().find(element =>
+      /^check$/i.test(getLabel(element))
+    );
+
+    if (!checkButton) return false;
+
+    checkButton.click();
+
+    // Esperar a que Cambridge evalúe la respuesta y muestre Next.
+    const deadline = Date.now() + 7000;
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const nextButton = findNext();
+      if (nextButton) {
+        nextButton.click();
+        return true;
       }
+    }
 
-      return (
-        /^(check|next|siguiente|continuar|continue|next question|próxima|avanzar|›|→)$/i.test(label) ||
-        /^(next|siguiente|continuar|continue)\b/i.test(label)
-      );
-    });
-
-    if (!next) return false;
-
-    next.click();
+    // Check se pulsó; si Next tarda o no aparece, el siguiente ciclo
+    // volverá a leer el estado sin pulsar controles desconocidos.
     return true;
   }
 
