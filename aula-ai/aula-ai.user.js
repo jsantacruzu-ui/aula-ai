@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.11
+// @version      0.3.12
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1566,6 +1566,54 @@
     return true;
   }
 
+  // Envía o comprueba las respuestas únicamente al llegar al final,
+  // cuando ya no existe un control seguro para pasar a otra pregunta.
+  function clickSubmitAnswers() {
+    const elements = allElements(
+      'button,[role="button"],input[type="button"],input[type="submit"]'
+    ).filter(isVisible);
+
+    const candidates = elements.map(element => {
+      const labels = [
+        element.innerText,
+        element.value,
+        element.getAttribute("aria-label"),
+        element.getAttribute("title"),
+        element.getAttribute("data-testid")
+      ].filter(Boolean);
+
+      return {
+        element,
+        label: labels.join(" ").replace(/\s+/g, " ").trim()
+      };
+    });
+
+    const submit = candidates.find(({ element, label }) => {
+      const normalized = label.toLowerCase();
+      if (!normalized) return false;
+
+      // Coincidencias intencionalmente específicas para evitar
+      // confundir Entregar/Comprobar con Salir, Continuar o Siguiente.
+      const exactAction =
+        /^(check|check answer|check answers|check my answers|submit|submit answer|submit answers|send|send answers|enviar|enviar respuesta|enviar respuestas|entregar|entregar respuesta|entregar respuestas|comprobar|comprobar respuesta|comprobar respuestas|verificar|verificar respuestas|finish|finish activity|finalizar|finalizar actividad)$/i;
+
+      const titleOrAria =
+        [
+          element.getAttribute("aria-label"),
+          element.getAttribute("title"),
+          element.getAttribute("data-testid")
+        ].filter(Boolean).join(" ").trim();
+
+      return exactAction.test(label) ||
+        exactAction.test(titleOrAria);
+    });
+
+    if (!submit) return null;
+
+    submit.element.click();
+    return submit.label || "Enviar / comprobar respuestas";
+  }
+
   // ==========================================
   // COMUNICACIÓN ENTRE MARCOS
   // ==========================================
@@ -1606,6 +1654,7 @@
     maxQuestions,
     automatic,
     captureAudio,
+    submitOnFinish,
     initialAudioPromise
   ) {
     stopRequested = false;
@@ -1730,10 +1779,31 @@
         }
 
         if (!clickNext()) {
-          report(
-            runId,
-            "Se colocaron respuestas, pero no encontré un botón seguro para continuar. No se pulsó Entregar ni Enviar."
-          );
+          if (submitOnFinish) {
+            const submittedLabel = clickSubmitAnswers();
+
+            if (submittedLabel) {
+              report(
+                runId,
+                `Se colocaron las respuestas y se pulsó "${submittedLabel}". Esperando la confirmación de Cambridge One…`
+              );
+              await new Promise(resolve => setTimeout(resolve, 1800));
+              report(
+                runId,
+                `Aula AI hizo clic en "${submittedLabel}" al llegar al final de la actividad. Revisa el resultado o la confirmación que muestre Cambridge One.`
+              );
+            } else {
+              report(
+                runId,
+                "Se respondieron las preguntas visibles, pero no encontré un botón final identificable como Check answers, Submit, Enviar o Entregar. No se hizo clic en controles desconocidos."
+              );
+            }
+          } else {
+            report(
+              runId,
+              "Se respondieron las preguntas visibles. La opción de envío automático está desactivada."
+            );
+          }
 
           return;
         }
@@ -1926,6 +1996,11 @@
             Reproducir y escuchar audio automáticamente
           </p>
 
+          <p class="small">
+            <input id="submit" type="checkbox" checked>
+            Enviar / comprobar respuestas al finalizar la actividad
+          </p>
+
           <button class="action secondary" id="connectAudio">
             Conectar audio de esta pestaña (opcional)
           </button>
@@ -1953,8 +2028,8 @@
         </div>
 
         <p class="small">
-          Aula AI intenta reproducir el audio y escucharlo.
-          No pulsa Entregar ni Enviar.
+          Aula AI reproduce el audio, analiza el contenido y coloca las respuestas.
+          Con el envío automático activado, pulsa Comprobar / Enviar al llegar al final.
         </p>
       </section>
 
@@ -2116,7 +2191,8 @@
         runId: activeRunId,
         maxQuestions: Number(el("max").value),
         automatic: el("auto").checked,
-        captureAudio
+        captureAudio,
+        submitOnFinish: el("submit").checked
       };
 
       // Analizar el documento principal.
@@ -2125,6 +2201,7 @@
         command.maxQuestions,
         command.automatic,
         captureAudio,
+        command.submitOnFinish,
         audioPromise
       );
 
@@ -2201,6 +2278,7 @@
             data.maxQuestions,
             data.automatic,
             data.captureAudio,
+            data.submitOnFinish,
             audioPromise
           );
         }
