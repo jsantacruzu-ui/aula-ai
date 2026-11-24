@@ -20,6 +20,7 @@
 // @grant        GM_registerMenuCommand
 // @connect      olkhplrgtcxrrnpmbjgd.supabase.co
 // @connect      aula-ai.jsantacruzu.workers.dev
+  // @connect      content.cambridgeone.org
 // ==/UserScript==
 
 (() => {
@@ -488,7 +489,7 @@
 
       const match = win.performance.getEntriesByType("resource").find(entry =>
         (entry.name || "").includes(mediaId) &&
-        /\\.mp3(?:[?#]|$)/i.test(entry.name || "")
+        /\.mp3(?:[?#]|$)/i.test(entry.name || "")
       );
 
       if (match) return match.name;
