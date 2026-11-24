@@ -587,6 +587,12 @@ export default {
       }
     }
 
-    return env.ASSETS.fetch(request);
+    if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+      return env.ASSETS.fetch(request);
+    }
+
+    return json({
+      error: "Falta el binding ASSETS. Despliega este Worker desde el repositorio con wrangler.jsonc."
+    }, 500);
   }
 };
