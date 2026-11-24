@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.8
+// @version      0.3.9
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -52,6 +52,7 @@
   let stopRequested = false;
   let activeRunId = "";
   let setPanelStatus = () => {};
+  let tabAudioStream = null;
 
   // ==========================================
   // CONEXIÓN CON AULA AI
@@ -846,31 +847,185 @@
     });
   }
 
+  function isCambridgePlayerPlaying(player) {
+    if (!player) return false;
+
+    const stateText = [
+      player.className || "",
+      ...[...player.querySelectorAll("[class]")].map(el => String(el.className || "")),
+      ...[...player.querySelectorAll("[aria-label]")].map(el => el.getAttribute("aria-label") || "")
+    ].join(" ").toLowerCase();
+
+    if (/(^|\\s)(playing|is-playing|pause|pausar)(\\s|$)/i.test(stateText)) {
+      return true;
+    }
+
+    const times = [...(player.innerText || "").matchAll(/\\b(\\d{1,2}):(\\d{2})\\b/g)]
+      .map(match => Number(match[1]) * 60 + Number(match[2]));
+
+    return times.length >= 2 &&
+      times[0] > 0 &&
+      times[0] < times[times.length - 1];
+  }
+
+  function cambridgeDurationMs(player) {
+    const times = [...(player?.innerText || "").matchAll(/\\b(\\d{1,2}):(\\d{2})\\b/g)]
+      .map(match => Number(match[1]) * 60 + Number(match[2]));
+
+    const duration = times.length >= 2
+      ? times[times.length - 1]
+      : 0;
+
+    return duration > 0
+      ? Math.min(MAX_AUDIO_MS, duration * 1000 + 1200)
+      : 12000;
+  }
+
+  function recordCambridgeTabAudio(player) {
+    if (!tabAudioStream || typeof MediaRecorder === "undefined") {
+      return Promise.resolve({
+        audioBase64: "",
+        note: "No hay una captura de audio de pestaña conectada."
+      });
+    }
+
+    const tracks = tabAudioStream.getAudioTracks()
+      .filter(track => track.readyState === "live");
+
+    if (!tracks.length) {
+      return Promise.resolve({
+        audioBase64: "",
+        note: "La captura de pestaña ya no tiene una pista de audio activa. Vuelve a conectarla."
+      });
+    }
+
+    const stream = new MediaStream(tracks);
+    const formats = [
+      "audio/webm;codecs=opus",
+      "audio/ogg;codecs=opus",
+      "audio/webm"
+    ];
+    const mimeType = formats.find(type =>
+      MediaRecorder.isTypeSupported(type)
+    );
+
+    let recorder;
+
+    try {
+      recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 })
+        : new MediaRecorder(stream, { audioBitsPerSecond: 64000 });
+    } catch (error) {
+      return Promise.resolve({
+        audioBase64: "",
+        note: "No se pudo iniciar la grabación de la pestaña: " + error.message
+      });
+    }
+
+    return new Promise(resolve => {
+      const chunks = [];
+      let finished = false;
+      let timer;
+
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+
+        if (recorder.state === "recording") {
+          recorder.stop();
+        }
+      };
+
+      recorder.ondataavailable = event => {
+        if (event.data?.size) chunks.push(event.data);
+      };
+
+      recorder.onerror = event => {
+        finish();
+        resolve({
+          audioBase64: "",
+          note: event.error?.message || "Falló la grabación del audio de la pestaña."
+        });
+      };
+
+      recorder.onstop = async () => {
+        const blob = new Blob(chunks, {
+          type: recorder.mimeType || "audio/webm"
+        });
+
+        if (!blob.size) {
+          resolve({
+            audioBase64: "",
+            note: "Chrome no entregó sonido. Comprueba que seleccionaste la pestaña de Cambridge y activaste compartir audio."
+          });
+          return;
+        }
+
+        if (blob.size > MAX_AUDIO_BYTES) {
+          resolve({
+            audioBase64: "",
+            note: "El audio capturado supera el tamaño permitido."
+          });
+          return;
+        }
+
+        try {
+          resolve({
+            audioBase64: await blobToDataUrl(blob),
+            note: `Audio de la pestaña capturado (${Math.round(blob.size / 1024)} KB).`
+          });
+        } catch (error) {
+          resolve({
+            audioBase64: "",
+            note: "No se pudo preparar el audio de la pestaña: " + error.message
+          });
+        }
+      };
+
+      try {
+        recorder.start();
+        // La grabación comienza antes del clic para no perder el inicio.
+        const playButton = player?.querySelector("button.play");
+        if (playButton && !isCambridgePlayerPlaying(player)) {
+          playButton.click();
+        }
+
+        timer = setTimeout(
+          finish,
+          cambridgeDurationMs(player)
+        );
+      } catch (error) {
+        finish();
+        resolve({
+          audioBase64: "",
+          note: "No se pudo comenzar a grabar la pestaña: " + error.message
+        });
+      }
+    });
+  }
+
   async function startAudioCaptureFromClick() {
     const media = findMedia();
     if (media) return startRecording(media);
 
     // Cambridge One usa un reproductor propio dentro de un iframe.
-    // El botón .play es un conmutador: el segundo clic lo PAUSA.
-    // Por eso, cuando encontramos este reproductor, nunca volvemos
-    // a pulsar el botón desde la búsqueda genérica.
+    // El botón .play es un conmutador: un segundo clic lo PAUSA.
     const players = allElements("figure.audio.v_a_media");
     const player = players.find(isVisible) || players[0];
 
     if (player) {
+      if (tabAudioStream) {
+        return recordCambridgeTabAudio(player);
+      }
+
       let audioUrl = findCambridgeAudioUrl(player);
-      let playWasClicked = false;
+
+      if (!isCambridgePlayerPlaying(player)) {
+        player.querySelector("button.play")?.click();
+      }
 
       if (!audioUrl) {
-        const playButton = player.querySelector("button.play");
-
-        if (playButton && isVisible(playButton)) {
-          playButton.click();
-          playWasClicked = true;
-        }
-
-        // Después de un único clic, esperamos el recurso MP3 o que
-        // Cambridge cree un elemento de audio accesible.
         for (let attempt = 0; attempt < 25; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -888,12 +1043,10 @@
         const downloaded = await downloadCambridgeAudio(audioUrl);
         if (downloaded.audioBase64) return downloaded;
 
-        // La descarga puede estar bloqueada aunque el reproductor
-        // haya empezado. No hacemos otro clic para no detenerlo.
         return {
           audioBase64: "",
           note: downloaded.note +
-            " El reproductor ya recibió un único clic de Play; no se volvió a pulsar para evitar pausarlo."
+            " El reproductor recibió un único clic de Play y no se volvió a pulsar para evitar pausarlo."
         };
       }
 
@@ -902,14 +1055,10 @@
 
       return {
         audioBase64: "",
-        note: playWasClicked
-          ? "Pulsé Play una sola vez en Cambridge y dejé el audio reproduciéndose. El sitio no expuso un archivo de audio ni una pista capturable para transcribirlo."
-          : "Encontré el reproductor de Cambridge, pero no pude identificar un archivo de audio accesible. No pulsé de nuevo para evitar detener una reproducción que ya estuviera activa."
+        note: "Pulsé Play una sola vez en Cambridge y dejé el reproductor activo, pero el sitio no expuso un archivo de audio ni una pista capturable. Puedes conectar el audio de la pestaña para que Aula AI escuche lo que suena."
       };
     }
 
-    // Para reproductores distintos al de Cambridge, se permite un
-    // único clic en el control Play detectado.
     const playButton = findPlayButton();
 
     if (playButton) {
@@ -925,7 +1074,7 @@
     };
   }
 
-  // ==========================================
+// ==========================================
   // CAPTURAR IMÁGENES Y FOTOGRAMAS
   // ==========================================
 
@@ -1658,6 +1807,15 @@
             Reproducir y escuchar audio automáticamente
           </p>
 
+          <button class="action secondary" id="connectAudio">
+            Conectar audio de esta pestaña (opcional)
+          </button>
+
+          <p class="small">
+            Solo cuando Cambridge no permite capturar el audio directamente.
+            Chrome pedirá elegir esta pestaña y compartir su sonido.
+          </p>
+
           <button class="action" id="run">
             Analizar y responder
           </button>
@@ -1741,7 +1899,61 @@
       }
     });
 
+    el("connectAudio").addEventListener("click", async () => {
+      if (tabAudioStream) {
+        tabAudioStream.getTracks().forEach(track => track.stop());
+        tabAudioStream = null;
+        el("connectAudio").textContent = "Conectar audio de esta pestaña (opcional)";
+        setPanelStatus("Captura de audio desconectada.");
+        return;
+      }
+
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        setPanelStatus("Este navegador no permite capturar el audio de la pestaña.");
+        return;
+      }
+
+      el("connectAudio").disabled = true;
+      setPanelStatus("En Chrome, elige la pestaña de Cambridge y activa la opción para compartir su audio.");
+
+      try {
+        // getDisplayMedia se llama directamente desde el clic del usuario.
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+
+        if (!stream.getAudioTracks().length) {
+          stream.getTracks().forEach(track => track.stop());
+          throw new Error("No se recibió audio. Selecciona una pestaña y activa compartir audio.");
+        }
+
+        tabAudioStream = stream;
+        stream.getTracks().forEach(track => {
+          track.addEventListener("ended", () => {
+            if (tabAudioStream === stream) {
+              tabAudioStream = null;
+              el("connectAudio").textContent = "Conectar audio de esta pestaña (opcional)";
+              setPanelStatus("La captura de audio terminó. Puedes volver a conectarla cuando la necesites.");
+            }
+          }, { once: true });
+        });
+
+        el("connectAudio").textContent = "Desconectar audio de pestaña";
+        setPanelStatus("Audio de la pestaña conectado. Ahora pulsa Analizar y responder.");
+      } catch (error) {
+        setPanelStatus("No se conectó el audio de la pestaña: " + error.message);
+      } finally {
+        el("connectAudio").disabled = false;
+      }
+    });
+
     el("logout").addEventListener("click", async () => {
+      if (tabAudioStream) {
+        tabAudioStream.getTracks().forEach(track => track.stop());
+        tabAudioStream = null;
+      }
+
       await GM_setValue(TOKEN_KEY, "");
       await GM_setValue(REFRESH_KEY, "");
       await GM_setValue(EMAIL_KEY, "");
@@ -1809,6 +2021,12 @@
 
     el("stop").addEventListener("click", () => {
       stopRequested = true;
+
+      if (tabAudioStream) {
+        tabAudioStream.getTracks().forEach(track => track.stop());
+        tabAudioStream = null;
+        el("connectAudio").textContent = "Conectar audio de esta pestaña (opcional)";
+      }
 
       sendToChildFrames({
         source: "AULA_AI_COMMAND",
