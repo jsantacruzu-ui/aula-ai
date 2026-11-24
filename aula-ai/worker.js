@@ -376,7 +376,7 @@ Devuelve SOLO JSON válido con esta estructura:
   "actions": [
     {
       "control_index": 0,
-      "action": "fill|select|click",
+      "action": "fill|select|click|click_image",
       "value": "respuesta exacta",
       "question": "pregunta breve",
       "explanation": "razón breve",
@@ -396,6 +396,9 @@ Reglas:
   - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
   - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
+- Para ejercicios de relacionar descripciones con imágenes, compara el significado del texto con el contenido visual de cada imagen. Cuando una imagen sea la respuesta, devuelve action "click_image" usando el control_index del control type "image" cuyo image_number/label corresponde a esa imagen.
+- No uses click_image en imágenes decorativas ni en imágenes que no estén registradas como controles type "image". No adivines: si no se puede distinguir qué imagen corresponde, deja actions vacío y explica qué falta.
+- Los controles type "image" son opciones seleccionables; su label puede contener el texto alternativo y su image_number corresponde al orden de las imágenes capturadas de mayor a menor tamaño.
 - Si el enunciado está en una imagen, léelo junto con las opciones desplegables visibles.
 - control_index debe corresponder exactamente a controls.
 - Usa solo controles suministrados. No inventes índices.
