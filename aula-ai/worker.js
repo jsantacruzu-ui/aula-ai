@@ -396,6 +396,10 @@ Reglas:
   - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
   - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
+- En ejercicios de completar oraciones con un banco de palabras/cuadros de respuestas, identifica las palabras disponibles y los espacios vacíos de cada oración.
+- Si Cambridge indica que se debe hacer clic en una palabra del banco para colocarla en el espacio, devuelve action "click" con el control_index exacto de esa palabra/opción. Usa una acción por palabra necesaria y no hagas clic en botones de navegación.
+- Los elementos type button, draggable, word, token, choice o answer-option pueden ser opciones seleccionables si su texto coincide con una respuesta del ejercicio. No selecciones textos del menú de cuenta, navegación ni elementos ajenos al ejercicio.
+- Si el espacio se completa automáticamente al hacer clic en la palabra, no intentes escribir directamente en el espacio. Si hay que seleccionar primero el espacio y después la palabra, usa los controles del espacio y de la palabra en el orden que indique claramente la interfaz; no adivines.
 - En una actividad donde se pide elegir o relacionar una descripción con una imagen, considera las opciones type "image" como respuestas seleccionables, aunque el HTML original no las llame botones.
 - Compara el texto actual de la pregunta (por ejemplo, "a snowy day", "a rainy day" o "a hot day") con el contenido visual de CADA imagen enviada. Las imágenes se identifican en sus descripciones como "Opción visual número N".
 - Cuando puedas determinar la correspondencia, devuelve una sola acción action "click_image" con el control_index del control type "image" cuyo image_number coincida con la opción visual correcta. No selecciones solo por el orden: interpreta la imagen.
