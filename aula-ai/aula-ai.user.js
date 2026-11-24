@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.4
+// @version      0.3.5
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -474,6 +474,74 @@
     });
   }
 
+  // Cambridge One usa Sound/Howler y no crea etiquetas <audio>.
+  // Localizamos el MP3 descargado por el reproductor en cada marco.
+  function findCambridgeAudioUrl(player) {
+    const rawId = player?.getAttribute("data-playable-media") || "";
+    const mediaId = rawId.replace(/^ID_/, "");
+    if (!mediaId) return "";
+
+    for (const root of getRoots()) {
+      const doc = root.nodeType === 9 ? root : root.ownerDocument;
+      const win = doc?.defaultView;
+      if (!win?.performance) continue;
+
+      const match = win.performance.getEntriesByType("resource").find(entry =>
+        (entry.name || "").includes(mediaId) &&
+        /\\.mp3(?:[?#]|$)/i.test(entry.name || "")
+      );
+
+      if (match) return match.name;
+    }
+    return "";
+  }
+
+  function downloadCambridgeAudio(url) {
+    return new Promise(resolve => {
+      if (!url) {
+        resolve({ audioBase64: "", note: "No se encontró el MP3 del reproductor Cambridge." });
+        return;
+      }
+
+      GM_xmlhttpRequest({
+        method: "GET",
+        url,
+        responseType: "blob",
+        timeout: 30000,
+        onload: async response => {
+          if (response.status < 200 || response.status >= 300) {
+            resolve({ audioBase64: "", note: `Cambridge no permitió descargar el audio (HTTP ${response.status}).` });
+            return;
+          }
+
+          try {
+            const blob = response.response instanceof Blob
+              ? response.response
+              : new Blob([response.response], { type: "audio/mpeg" });
+
+            if (!blob.size) {
+              resolve({ audioBase64: "", note: "El archivo de audio llegó vacío." });
+              return;
+            }
+            if (blob.size > MAX_AUDIO_BYTES) {
+              resolve({ audioBase64: "", note: "El audio supera el límite permitido de tamaño." });
+              return;
+            }
+
+            resolve({
+              audioBase64: await blobToDataUrl(blob),
+              note: `Audio MP3 de Cambridge capturado (${Math.round(blob.size / 1024)} KB).`
+            });
+          } catch (error) {
+            resolve({ audioBase64: "", note: "No se pudo preparar el MP3: " + error.message });
+          }
+        },
+        onerror: () => resolve({ audioBase64: "", note: "No se pudo acceder al archivo MP3 de Cambridge." }),
+        ontimeout: () => resolve({ audioBase64: "", note: "La descarga del audio de Cambridge tardó demasiado." })
+      });
+    });
+  }
+
   // ==========================================
   // REPRODUCIR Y ESCUCHAR AUTOMÁTICAMENTE
   // ==========================================
@@ -749,34 +817,40 @@
     });
   }
 
-  function startAudioCaptureFromClick() {
-    // Primero intentamos localizar el reproductor.
-    let media = findMedia();
+  async function startAudioCaptureFromClick() {
+    const media = findMedia();
+    if (media) return startRecording(media);
 
-    if (media) {
-      return startRecording(media);
-    }
+    // Cambridge One administra el audio con Sound/Howler.
+    // El MP3 queda registrado en los recursos del marco aunque
+    // no exista una etiqueta <audio> visible.
+    const players = allElements("figure.audio.v_a_media");
+    const player = players.find(isVisible) || players[0];
 
-    // Si todavía no hay elemento multimedia,
-    // intentamos pulsar el control Play de la página.
-    const playButton = findPlayButton();
+    if (player) {
+      let audioUrl = findCambridgeAudioUrl(player);
 
-    if (playButton) {
-      playButton.click();
-    }
-
-    return waitForMedia().then(foundMedia => {
-      if (!foundMedia) {
-        return {
-          audioBase64: "",
-          note:
-            "No encontré un reproductor de audio accesible. " +
-            "Puede estar dentro de un reproductor protegido o externo."
-        };
+      if (!audioUrl) {
+        player.querySelector("button.play")?.click();
+        for (let attempt = 0; attempt < 15 && !audioUrl; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          audioUrl = findCambridgeAudioUrl(player);
+        }
       }
 
-      return startRecording(foundMedia);
-    });
+      if (audioUrl) return downloadCambridgeAudio(audioUrl);
+    }
+
+    const playButton = findPlayButton();
+    if (playButton) playButton.click();
+
+    const foundMedia = await waitForMedia();
+    if (foundMedia) return startRecording(foundMedia);
+
+    return {
+      audioBase64: "",
+      note: "No encontré un archivo de audio accesible. El sitio puede usar un reproductor externo o protegido."
+    };
   }
 
   // ==========================================
