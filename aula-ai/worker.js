@@ -390,8 +390,13 @@ Devuelve SOLO JSON válido con esta estructura:
 Reglas:
 - Resuelve los ejercicios visibles con la información disponible.
 - Para campos de texto usa fill.
-- Para select usa select y value debe coincidir con una opción.
+- Para un select nativo, usa select y value debe coincidir con una opción.
+- Para un control cuyo campo dropdown sea true, trata el control como un cuadro desplegable personalizado:
+  - Si expanded no es "true" y aún no hay opciones visibles, devuelve click sobre ESE control para abrir la lista; no inventes la respuesta todavía.
+  - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
+  - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
+- Si el enunciado está en una imagen, léelo junto con las opciones desplegables visibles.
 - control_index debe corresponder exactamente a controls.
 - Usa solo controles suministrados. No inventes índices.
 - No propongas clics en enviar, entregar, finalizar, terminar, comprobar, submit o finish.
