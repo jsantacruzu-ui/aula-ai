@@ -135,13 +135,9 @@ async function runModel(env, messages, maxTokens = 3000) {
 function validateImages(rawImages) {
   if (!Array.isArray(rawImages)) return [];
 
-  if (rawImages.length > MAX_IMAGES) {
-    throw new Error(
-      `Envía como máximo ${MAX_IMAGES} imágenes o fotogramas por análisis.`
-    );
-  }
-
-  return rawImages.map((item, index) => {
+  // Una imagen incorrecta no debe cancelar todo el ejercicio.
+  // Se descartan solo las entradas dañadas o con MIME no admitido.
+  return rawImages.slice(0, MAX_IMAGES).flatMap((item, index) => {
     const dataUrl =
       typeof item === "string"
         ? item
@@ -152,27 +148,22 @@ function validateImages(rawImages) {
         ? String(item.description || `Imagen ${index + 1}`)
         : `Imagen ${index + 1}`;
 
-    if (
-      typeof dataUrl !== "string" ||
-      dataUrl.length > MAX_IMAGE_CHARS
-    ) {
-      throw new Error(
-        `La imagen ${index + 1} está vacía o supera el tamaño permitido.`
+    const valid =
+      typeof dataUrl === "string" &&
+      dataUrl.length <= MAX_IMAGE_CHARS &&
+      /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(dataUrl);
+
+    if (!valid) {
+      console.warn(
+        `Aula AI: se omitió la imagen ${index + 1} por formato o tamaño no válido.`
       );
+      return [];
     }
 
-    if (
-      !/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(dataUrl)
-    ) {
-      throw new Error(
-        `La imagen ${index + 1} no tiene un formato JPEG, PNG o WebP válido.`
-      );
-    }
-
-    return {
+    return [{
       dataUrl,
       description: description.slice(0, 160)
-    };
+    }];
   });
 }
 
