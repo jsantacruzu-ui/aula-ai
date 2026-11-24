@@ -2,6 +2,7 @@
 (() => {
   const SUPABASE_URL = "https://olkhplrgtcxrrnpmbjgd.supabase.co";
   const SUPABASE_KEY = "sb_publishable_0db7VfdBlXTrubYldbH_TQ_T0vrSbKV";
+  const WORKER_URL = "https://aula-ai.jsantacruzu.workers.dev";
 
   const $ = id => document.getElementById(id);
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -206,20 +207,46 @@
 
       taskId = savedTask.id;
 
-      // Enviar la consulta a la función segura de Supabase.
-      const { data, error: aiError } = await client.functions.invoke(
-        "study-assistant",
-        {
-          body: {
-            title: task.title,
-            prompt: task.prompt,
-            subject: task.subject,
-            mode: task.mode
-          }
-        }
-      );
+      // Obtener la sesión del usuario.
+      const { data: sessionData, error: sessionError } =
+        await client.auth.getSession();
 
-      if (aiError) throw aiError;
+      if (sessionError) throw sessionError;
+
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        throw new Error("Tu sesión ha vencido. Vuelve a iniciar sesión.");
+      }
+
+      // Enviar la actividad a Cloudflare Workers AI.
+      const response = await fetch(`${WORKER_URL}/api/study`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          title: task.title,
+          prompt: task.prompt,
+          subject: task.subject,
+          mode: task.mode
+        })
+      });
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error("El servidor devolvió una respuesta que no se pudo leer.");
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || `Error del servidor (${response.status}).`
+        );
+      }
 
       if (!data || !data.answer) {
         throw new Error("La IA no devolvió una respuesta. Inténtalo nuevamente.");
@@ -289,3 +316,4 @@
     });
   }
 })();
+v
