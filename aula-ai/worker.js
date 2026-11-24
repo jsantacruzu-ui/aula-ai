@@ -396,9 +396,11 @@ Reglas:
   - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
   - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
-- Para ejercicios de relacionar descripciones con imágenes, compara el significado del texto con el contenido visual de cada imagen. Cuando una imagen sea la respuesta, devuelve action "click_image" usando el control_index del control type "image" cuyo image_number/label corresponde a esa imagen.
-- No uses click_image en imágenes decorativas ni en imágenes que no estén registradas como controles type "image". No adivines: si no se puede distinguir qué imagen corresponde, deja actions vacío y explica qué falta.
-- Los controles type "image" son opciones seleccionables; su label puede contener el texto alternativo y su image_number corresponde al orden de las imágenes capturadas de mayor a menor tamaño.
+- En una actividad donde se pide elegir o relacionar una descripción con una imagen, considera las opciones type "image" como respuestas seleccionables, aunque el HTML original no las llame botones.
+- Compara el texto actual de la pregunta (por ejemplo, "a snowy day", "a rainy day" o "a hot day") con el contenido visual de CADA imagen enviada. Las imágenes se identifican en sus descripciones como "Opción visual número N".
+- Cuando puedas determinar la correspondencia, devuelve una sola acción action "click_image" con el control_index del control type "image" cuyo image_number coincida con la opción visual correcta. No selecciones solo por el orden: interpreta la imagen.
+- Si hay varias descripciones presentadas como una lista para emparejar todas, devuelve una acción por cada emparejamiento inequívoco, sin reutilizar la misma imagen salvo que la actividad lo permita.
+- No descartes una imagen solo porque no tenga alt o no esté marcada como button: usa la imagen real y su image_number. Si no se puede interpretar el contenido visual, explica qué imagen no se puede leer en stop_reason.
 - Si el enunciado está en una imagen, léelo junto con las opciones desplegables visibles.
 - control_index debe corresponder exactamente a controls.
 - Usa solo controles suministrados. No inventes índices.
