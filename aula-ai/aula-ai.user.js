@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.5
+// @version      0.3.6
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -20,7 +20,9 @@
 // @grant        GM_registerMenuCommand
 // @connect      olkhplrgtcxrrnpmbjgd.supabase.co
 // @connect      aula-ai.jsantacruzu.workers.dev
-  // @connect      content.cambridgeone.org
+// @connect      content.cambridgeone.org
+// @connect      assets.cambridgeone.org
+// @connect      www.cambridgeone.org
 // ==/UserScript==
 
 (() => {
@@ -957,6 +959,63 @@
     }
   }
 
+  // Si el navegador bloquea el canvas por una imagen de otro origen,
+  // descargamos el recurso con el permiso de Tampermonkey.
+  async function captureImageElement(image, description) {
+    const direct = imageToDataUrl(image, description);
+    if (direct) return direct;
+
+    const url = image.currentSrc || image.src || "";
+    if (!/^https?:\\/\\//i.test(url)) return null;
+
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        method: "GET",
+        url,
+        responseType: "blob",
+        timeout: 20000,
+        onload: async response => {
+          if (response.status < 200 || response.status >= 300) {
+            console.warn("Aula AI: descarga de imagen no permitida:", response.status, url);
+            resolve(null);
+            return;
+          }
+
+          try {
+            const blob = response.response instanceof Blob
+              ? response.response
+              : new Blob([response.response], { type: "image/jpeg" });
+
+            if (!blob.size || blob.size > 850000) {
+              console.warn("Aula AI: imagen vacía o demasiado grande:", blob.size, url);
+              resolve(null);
+              return;
+            }
+
+            const dataUrl = await blobToDataUrl(blob);
+            if (!dataUrl.startsWith("data:image/") || dataUrl.length > MAX_IMAGE_SIZE) {
+              resolve(null);
+              return;
+            }
+
+            resolve({ dataUrl, description });
+          } catch (error) {
+            console.warn("Aula AI: error al preparar imagen:", error.message, url);
+            resolve(null);
+          }
+        },
+        onerror: error => {
+          console.warn("Aula AI: no se pudo descargar imagen:", url, error);
+          resolve(null);
+        },
+        ontimeout: () => {
+          console.warn("Aula AI: tiempo agotado al descargar imagen:", url);
+          resolve(null);
+        }
+      });
+    });
+  }
+
   async function captureImages() {
     const images = [];
     const skipped = [];
@@ -970,43 +1029,37 @@
       .sort((a, b) => {
         const ra = a.getBoundingClientRect();
         const rb = b.getBoundingClientRect();
-
-        return (
-          rb.width * rb.height -
-          ra.width * ra.height
-        );
+        return rb.width * rb.height - ra.width * ra.height;
       });
 
     for (const image of imageElements) {
-      if (images.length >= 2) break;
+      if (images.length >= 3) break;
 
-      const result = imageToDataUrl(
-        image,
+      const description =
         "Imagen de la actividad: " +
-        (image.alt || "sin descripción")
-      );
+        (image.alt || "sin descripción");
 
-      if (result) images.push(result);
-      else skipped.push("Una imagen no permitió su captura.");
+      const result = await captureImageElement(image, description);
+
+      if (result) {
+        images.push(result);
+      } else {
+        skipped.push(
+          `No se pudo capturar: ${image.alt || "sin descripción"} (${image.naturalWidth}x${image.naturalHeight})`
+        );
+      }
     }
 
     for (const canvas of allElements("canvas")) {
-      if (!isVisible(canvas) || images.length >= 3) {
-        continue;
-      }
+      if (!isVisible(canvas) || images.length >= MAX_IMAGES) continue;
 
       const result = imageToDataUrl(
         canvas,
         "Gráfico o actividad dibujada en canvas."
       );
 
-      if (result) {
-        images.push(result);
-      } else {
-        skipped.push(
-          "Un gráfico no permitió leer sus píxeles."
-        );
-      }
+      if (result) images.push(result);
+      else skipped.push("Un gráfico no permitió leer sus píxeles.");
     }
 
     for (const video of allElements("video")) {
@@ -1014,22 +1067,15 @@
         images.length >= MAX_IMAGES ||
         !isVisible(video) ||
         video.readyState < 2
-      ) {
-        continue;
-      }
+      ) continue;
 
       const result = imageToDataUrl(
         video,
         `Fotograma de vídeo en el segundo ${Math.round(video.currentTime)}.`
       );
 
-      if (result) {
-        images.push(result);
-      } else {
-        skipped.push(
-          "Un fotograma de vídeo no permitió captura."
-        );
-      }
+      if (result) images.push(result);
+      else skipped.push("Un fotograma de vídeo no permitió captura.");
     }
 
     return {
