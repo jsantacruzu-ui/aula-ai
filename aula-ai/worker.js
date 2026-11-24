@@ -1,7 +1,13 @@
 
 const SUPABASE_URL = "https://olkhplrgtcxrrnpmbjgd.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_0db7VfdBlXTrubYldbH_TQ_T0vrSbKV";
+
 const MODEL = "@cf/google/gemma-4-26b-a4b-it";
+const AUDIO_MODEL = "@cf/openai/whisper-large-v3-turbo";
+
+const MAX_IMAGES = 4;
+const MAX_IMAGE_CHARS = 1200000;
+const MAX_AUDIO_CHARS = 5600000;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -51,11 +57,8 @@ function extractModelText(result) {
   ];
 
   for (const candidate of candidates) {
-    const extracted = textFromContent(candidate).trim();
-
-    if (extracted) {
-      return extracted;
-    }
+    const value = textFromContent(candidate).trim();
+    if (value) return value;
   }
 
   return "";
@@ -99,7 +102,7 @@ async function authenticate(request) {
 async function runModel(env, messages, maxTokens = 3000) {
   if (!env.AI) {
     throw new Error(
-      "La conexión Workers AI (AI) no está disponible en este despliegue."
+      "La conexión Workers AI (AI) no está disponible."
     );
   }
 
@@ -115,25 +118,117 @@ async function runModel(env, messages, maxTokens = 3000) {
   const answer = extractModelText(result);
 
   if (!answer) {
-    const receivedFields =
+    const fields =
       result && typeof result === "object"
         ? Object.keys(result).join(", ")
         : typeof result;
 
-    console.error(
-      "Aula AI: formato de respuesta no reconocido.",
-      receivedFields
-    );
-
     throw new Error(
-      "El modelo respondió, pero el Worker no reconoció el texto. " +
-      "Campos recibidos: " +
-      (receivedFields || "ninguno") +
-      "."
+      `El modelo no devolvió texto reconocible. Campos: ${fields || "ninguno"}.`
     );
   }
 
   return answer;
+}
+
+// Validar las imágenes enviadas por Tampermonkey.
+function validateImages(rawImages) {
+  if (!Array.isArray(rawImages)) return [];
+
+  if (rawImages.length > MAX_IMAGES) {
+    throw new Error(
+      `Envía como máximo ${MAX_IMAGES} imágenes o fotogramas por análisis.`
+    );
+  }
+
+  return rawImages.map((item, index) => {
+    const dataUrl =
+      typeof item === "string"
+        ? item
+        : item?.dataUrl;
+
+    const description =
+      typeof item === "object"
+        ? String(item.description || `Imagen ${index + 1}`)
+        : `Imagen ${index + 1}`;
+
+    if (
+      typeof dataUrl !== "string" ||
+      dataUrl.length > MAX_IMAGE_CHARS
+    ) {
+      throw new Error(
+        `La imagen ${index + 1} está vacía o supera el tamaño permitido.`
+      );
+    }
+
+    if (
+      !/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(dataUrl)
+    ) {
+      throw new Error(
+        `La imagen ${index + 1} no tiene un formato JPEG, PNG o WebP válido.`
+      );
+    }
+
+    return {
+      dataUrl,
+      description: description.slice(0, 160)
+    };
+  });
+}
+
+// Transcribir el audio del reproductor.
+async function transcribeAudio(env, audioBase64) {
+  if (!env.AI) {
+    throw new Error("Workers AI no está disponible.");
+  }
+
+  if (
+    typeof audioBase64 !== "string" ||
+    !audioBase64.trim()
+  ) {
+    throw new Error("No se recibió el audio para transcribir.");
+  }
+
+  let encoded = audioBase64.trim();
+
+  if (encoded.startsWith("data:")) {
+    const comma = encoded.indexOf(",");
+
+    if (comma < 0) {
+      throw new Error("El archivo de audio no tiene un formato válido.");
+    }
+
+    encoded = encoded.slice(comma + 1);
+  }
+
+  if (encoded.length > MAX_AUDIO_CHARS) {
+    throw new Error(
+      "El audio supera el tamaño permitido. Graba un fragmento más corto."
+    );
+  }
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(encoded)) {
+    throw new Error("El audio no está codificado correctamente.");
+  }
+
+  const result = await env.AI.run(AUDIO_MODEL, {
+    audio: encoded,
+    task: "transcribe",
+    vad_filter: true
+  });
+
+  const transcript = String(
+    result?.text ||
+    result?.transcription_info?.text ||
+    result?.response ||
+    ""
+  ).trim();
+
+  if (!transcript) {
+    throw new Error("No se reconocieron palabras en el audio.");
+  }
+
+  return transcript;
 }
 
 async function recordUsage(auth, userId) {
@@ -161,145 +256,128 @@ async function recordUsage(auth, userId) {
   }
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
+// Actividades del panel principal.
+async function handleStudy(body, env, session) {
+  const title = String(body.title || "Consulta").slice(0, 160);
+  const prompt = String(body.prompt || "").trim().slice(0, 12000);
+  const subject = String(body.subject || "General").slice(0, 80);
+  const mode = String(body.mode || "explain");
 
-    if (url.pathname.startsWith("/api/")) {
-      if (request.method === "OPTIONS") {
-        return json({ ok: true });
+  if (!prompt) {
+    return json({
+      error: "Escribe una pregunta o ejercicio."
+    }, 400);
+  }
+
+  const instructions = {
+    explain:
+      "Explica el tema paso a paso, desde los fundamentos y con ejemplos.",
+
+    solve:
+      "Resuelve el ejercicio paso a paso. Muestra procedimiento, operaciones y respuesta final.",
+
+    review:
+      "Revisa la respuesta del estudiante. Señala aciertos, errores y cómo corregirlos.",
+
+    summarize:
+      "Elabora un resumen organizado, fiel al contenido y con ideas principales.",
+
+    practice:
+      "Prepara una práctica breve con preguntas progresivas y respuestas explicadas al final."
+  };
+
+  const system =
+    `Eres Aula AI, un tutor académico claro, paciente y riguroso. ` +
+    `Responde en español salvo que pidan otro idioma. ` +
+    `Materia: ${subject}. ` +
+    `Objetivo: ${instructions[mode] || instructions.explain} ` +
+    `Usa títulos y listas cuando ayuden. ` +
+    `No inventes datos ni fuentes. Si falta información, dilo. ` +
+    `En matemáticas y contabilidad muestra los cálculos y verifica el resultado.`;
+
+  const answer = await runModel(
+    env,
+    [
+      {
+        role: "system",
+        content: system
+      },
+      {
+        role: "user",
+        content: `Título: ${title}\n\nConsulta:\n${prompt}`
       }
+    ],
+    3000
+  );
 
-      if (
-        request.method !== "POST" ||
-        !["/api/solve", "/api/study"].includes(url.pathname)
-      ) {
-        return json({
-          error: "Ruta no encontrada."
-        }, 404);
-      }
+  await recordUsage(session.auth, session.user.id);
 
-      const session = await authenticate(request);
+  return json({
+    answer,
+    model: MODEL
+  });
+}
 
-      if (session.error) {
-        return session.error;
-      }
+// Resolver actividades que contienen texto, imágenes o audio.
+async function handleSolve(body, env, session) {
+  const pageText = String(
+    body.pageText || ""
+  ).slice(0, 14000);
 
-      let body;
+  const controls = Array.isArray(body.controls)
+    ? body.controls.slice(0, 100)
+    : [];
 
-      try {
-        body = await request.json();
-      } catch {
-        return json({
-          error: "Solicitud no válida."
-        }, 400);
-      }
+  const title = String(
+    body.title || "Actividad"
+  ).slice(0, 200);
 
-      try {
-        // ==========================================
-        // AULA AI: PANEL DE ACTIVIDADES
-        // ==========================================
+  const images = validateImages(body.images);
 
-        if (url.pathname === "/api/study") {
-          const title = String(
-            body.title || "Consulta"
-          ).slice(0, 160);
+  let audioText = String(
+    body.audioText || ""
+  ).trim().slice(0, 12000);
 
-          const prompt = String(
-            body.prompt || ""
-          ).trim().slice(0, 12000);
+  // Si se adjuntó audio, transcribirlo primero.
+  if (body.audioBase64) {
+    const transcript = await transcribeAudio(
+      env,
+      body.audioBase64
+    );
 
-          const subject = String(
-            body.subject || "General"
-          ).slice(0, 80);
+    audioText = [
+      audioText,
+      transcript
+    ].filter(Boolean).join("\n\n").slice(0, 12000);
+  }
 
-          const mode = String(
-            body.mode || "explain"
-          );
+  if (
+    !pageText.trim() &&
+    !controls.length &&
+    !images.length &&
+    !audioText
+  ) {
+    return json({
+      error: "No encontré texto, controles, imágenes ni audio que analizar."
+    }, 400);
+  }
 
-          if (!prompt) {
-            return json({
-              error: "Escribe una pregunta o ejercicio."
-            }, 400);
-          }
+  const prompt = `
+Analiza una actividad educativa de una página web.
 
-          const instructions = {
-            explain:
-              "Explica el tema paso a paso, desde los fundamentos y con ejemplos.",
+Puede contener:
+- Texto normal.
+- Imágenes de preguntas.
+- Capturas de pantalla.
+- Gráficos.
+- Fotogramas de vídeo.
+- Transcripciones de audio.
 
-            solve:
-              "Resuelve el ejercicio paso a paso. Muestra procedimiento, operaciones y respuesta final.",
+Lee cuidadosamente todo el material visual.
 
-            review:
-              "Revisa la respuesta del estudiante. Señala aciertos, errores y cómo corregirlos.",
+Si una pregunta aparece en una imagen, gráfico o fotograma, interprétala y resuélvela.
 
-            summarize:
-              "Elabora un resumen organizado, fiel al contenido y con ideas principales.",
-
-            practice:
-              "Prepara una práctica breve con preguntas progresivas y respuestas explicadas al final."
-          };
-
-          const system =
-            `Eres Aula AI, un tutor académico claro, paciente y riguroso. ` +
-            `Responde en español salvo que pidan otro idioma. ` +
-            `Materia: ${subject}. ` +
-            `Objetivo: ${instructions[mode] || instructions.explain} ` +
-            `Usa títulos y listas cuando ayuden. ` +
-            `No inventes datos ni fuentes. Si falta información, dilo. ` +
-            `En matemáticas y contabilidad muestra los cálculos y verifica el resultado.`;
-
-          const answer = await runModel(
-            env,
-            [
-              {
-                role: "system",
-                content: system
-              },
-              {
-                role: "user",
-                content:
-                  `Título: ${title}\n\nConsulta:\n${prompt}`
-              }
-            ],
-            3000
-          );
-
-          await recordUsage(
-            session.auth,
-            session.user.id
-          );
-
-          return json({
-            answer,
-            model: MODEL
-          });
-        }
-
-        // ==========================================
-        // AULA AI: EXTENSIÓN DE CHROME
-        // ==========================================
-
-        const pageText = String(
-          body.pageText || ""
-        ).slice(0, 14000);
-
-        const controls = Array.isArray(body.controls)
-          ? body.controls.slice(0, 100)
-          : [];
-
-        const title = String(
-          body.title || "Actividad"
-        ).slice(0, 200);
-
-        if (!pageText.trim() && !controls.length) {
-          return json({
-            error: "No encontré contenido que analizar."
-          }, 400);
-        }
-
-        const prompt = `
-Analiza la actividad educativa de una página web.
+Si hay audio transcrito, úsalo como fuente de información y conserva el idioma de la actividad.
 
 Devuelve SOLO JSON válido con esta estructura:
 
@@ -319,74 +397,186 @@ Devuelve SOLO JSON válido con esta estructura:
 }
 
 Reglas:
-- Resuelve todos los ejercicios visibles con la información disponible.
+- Resuelve los ejercicios visibles con la información disponible.
 - Para campos de texto usa fill.
 - Para select usa select y value debe coincidir con una opción.
-- Para radios, casillas y opciones clicables usa click.
-- control_index debe coincidir con el índice de controls.
-- No inventes controles.
-- No propongas clics en botones de navegación, enviar, terminar, finalizar, entregar o salir.
-- Si no hay respuesta sustentada, deja actions vacío y explica por qué.
+- Para radios, casillas y opciones interactivas usa click.
+- control_index debe corresponder exactamente a controls.
+- Usa solo controles suministrados. No inventes índices.
+- No propongas clics en enviar, entregar, finalizar, terminar, comprobar, submit o finish.
+- Si una respuesta no está sustentada, no inventes. Deja actions vacío y explica qué dato falta.
 - Conserva el idioma exigido por la actividad.
 
-Título de página:
+Título:
 ${title}
 
-Texto visible:
-${pageText}
+Texto de la página:
+${pageText || "(No hay texto legible en el documento principal.)"}
 
-Controles:
+Transcripción de audio:
+${audioText || "(No se adjuntó audio.)"}
+
+Controles detectados:
 ${JSON.stringify(controls)}
 `;
 
-        const raw = await runModel(
-          env,
-          [
-            {
-              role: "system",
-              content:
-                "Devuelve únicamente JSON válido, sin Markdown ni texto adicional."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          1800
-        );
+  // Preparar mensaje multimodal para Gemma 4.
+  const content = [
+    {
+      type: "text",
+      text: prompt
+    }
+  ];
 
-        const start = raw.indexOf("{");
-        const end = raw.lastIndexOf("}");
+  for (const image of images) {
+    content.push({
+      type: "text",
+      text: `Contenido visual: ${image.description}`
+    });
 
-        if (start < 0 || end <= start) {
-          throw new Error(
-            "El modelo no devolvió JSON válido para la extensión."
-          );
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: image.dataUrl
+      }
+    });
+  }
+
+  const raw = await runModel(
+    env,
+    [
+      {
+        role: "system",
+        content:
+          "Eres Aula AI, un asistente académico preciso. " +
+          "Debes leer imágenes y texto conjuntamente. " +
+          "Devuelve únicamente JSON válido, sin Markdown ni texto adicional."
+      },
+      {
+        role: "user",
+        content
+      }
+    ],
+    2200
+  );
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+
+  if (start < 0 || end <= start) {
+    throw new Error(
+      "El modelo no devolvió JSON válido para la extensión."
+    );
+  }
+
+  const parsed = JSON.parse(
+    raw.slice(start, end + 1)
+  );
+
+  await recordUsage(
+    session.auth,
+    session.user.id
+  );
+
+  return json({
+    ...parsed,
+    model: MODEL,
+    media: {
+      images: images.length,
+      audioTranscribed: !!audioText,
+      audioText: audioText || undefined
+    }
+  });
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/api/")) {
+      if (request.method === "OPTIONS") {
+        return json({ ok: true });
+      }
+
+      const allowed = [
+        "/api/solve",
+        "/api/study",
+        "/api/transcribe"
+      ];
+
+      if (
+        request.method !== "POST" ||
+        !allowed.includes(url.pathname)
+      ) {
+        return json({
+          error: "Ruta no encontrada."
+        }, 404);
+      }
+
+      const session = await authenticate(request);
+
+      if (session.error) {
+        return session.error;
+      }
+
+      let body;
+
+      try {
+        const rawBody = await request.text();
+
+        if (rawBody.length > 9000000) {
+          return json({
+            error:
+              "El material multimedia supera el tamaño permitido. " +
+              "Reduce la duración del audio o la cantidad de imágenes."
+          }, 413);
         }
 
-        const parsed = JSON.parse(
-          raw.slice(start, end + 1)
-        );
+        body = JSON.parse(rawBody);
 
-        await recordUsage(
-          session.auth,
-          session.user.id
-        );
-
+      } catch {
         return json({
-          ...parsed,
-          model: MODEL
-        });
+          error: "La solicitud no contiene JSON válido."
+        }, 400);
+      }
+
+      try {
+        if (url.pathname === "/api/study") {
+          return await handleStudy(body, env, session);
+        }
+
+        if (url.pathname === "/api/transcribe") {
+          const transcript = await transcribeAudio(
+            env,
+            body.audioBase64
+          );
+
+          await recordUsage(
+            session.auth,
+            session.user.id
+          );
+
+          return json({
+            transcript,
+            model: AUDIO_MODEL
+          });
+        }
+
+        return await handleSolve(
+          body,
+          env,
+          session
+        );
 
       } catch (error) {
         console.error(
-          "Aula AI inference error:",
+          "Aula AI multimedia error:",
           error?.stack || error?.message || error
         );
 
         return json({
           error:
-            "No se pudo generar la respuesta: " +
+            "No se pudo procesar el material: " +
             (error?.message || "error del modelo")
         }, 502);
       }
