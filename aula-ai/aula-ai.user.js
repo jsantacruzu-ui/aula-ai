@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.14
+// @version      0.3.15
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -278,6 +278,11 @@
   function isCustomDropdown(element) {
     if (!element || !element.matches) return false;
 
+    // Las opciones pertenecen a la lista, no son cuadros que debamos abrir.
+    if (element.matches('[role="option"],[role="menuitem"],[data-value],li[tabindex]')) {
+      return false;
+    }
+
     const role = (element.getAttribute("role") || "").toLowerCase();
     const popup = (element.getAttribute("aria-haspopup") || "").toLowerCase();
     const classes = String(element.className || "").toLowerCase();
@@ -289,15 +294,17 @@
       popup === "menu"
     ) return true;
 
-    if (
+    const classSuggestsDropdown =
       /select|dropdown|combobox|answer.?choice|choice.?select/.test(classes) ||
-      /select|dropdown|combobox/.test(testId)
-    ) return true;
+      /select|dropdown|combobox/.test(testId);
 
-    return (
-      element.matches('button[aria-expanded], [role="button"][aria-expanded]') &&
-      /select|dropdown|combo|choice|answer/.test(classes + " " + testId)
-    );
+    if (!classSuggestsDropdown) return false;
+
+    const interactive =
+      element.matches('button,[role="button"],input,[tabindex]') ||
+      element.ownerDocument?.defaultView?.getComputedStyle(element).cursor === "pointer";
+
+    return !!interactive;
   }
 
   function dropdownStableKey(element) {
@@ -307,11 +314,102 @@
       element.innerText ||
       element.textContent ||
       ""
-    ).trim().toLowerCase().replace(/\\s+/g, " ").slice(0, 120);
+    ).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
 
     const id = element.id || "";
     const classes = String(element.className || "").toLowerCase().slice(0, 100);
     return [element.tagName, id, text, classes].join("|");
+  }
+
+  function getCustomDropdownOptions(element) {
+    if (!element) return [];
+
+    const doc = element.ownerDocument || document;
+    const containers = [];
+    const references = [
+      element.getAttribute("aria-controls"),
+      element.getAttribute("aria-owns")
+    ].filter(Boolean);
+
+    for (const reference of references) {
+      for (const id of reference.split(/\s+/)) {
+        const target = doc.getElementById(id);
+        if (target) containers.push(target);
+      }
+    }
+
+    if (!containers.length) {
+      containers.push(
+        ...[...doc.querySelectorAll(
+          '[role="listbox"],[role="menu"],[class*="dropdown-menu" i],[class*="select-menu" i]'
+        )].filter(isVisible)
+      );
+    }
+
+    const seen = new Set();
+    const options = [];
+
+    for (const container of containers) {
+      const candidates = container.matches(
+        '[role="option"],[role="menuitem"],option,li,[data-value],button'
+      )
+        ? [container]
+        : [...container.querySelectorAll(
+            '[role="option"],[role="menuitem"],option,li,[data-value],button'
+          )];
+
+      for (const option of candidates) {
+        if (seen.has(option) || !isVisible(option)) continue;
+        seen.add(option);
+
+        const text = String(
+          option.innerText ||
+          option.textContent ||
+          option.getAttribute("aria-label") ||
+          option.getAttribute("data-value") ||
+          ""
+        ).trim();
+
+        if (!text) continue;
+
+        options.push({
+          text: text.slice(0, 180),
+          value: String(
+            option.value ??
+            option.getAttribute("data-value") ??
+            option.getAttribute("aria-label") ??
+            text
+          ).slice(0, 180)
+        });
+      }
+    }
+
+    return options.slice(0, 40);
+  }
+
+  function openNextDropdown(openedDropdownKeys) {
+    const candidates = allElements(
+      'select,[role="combobox"],[aria-haspopup="listbox"],[aria-haspopup="menu"],button,[role="button"],[class*="dropdown" i],[class*="select" i]'
+    ).filter(element =>
+      isVisible(element) &&
+      isCustomDropdown(element) &&
+      element.getAttribute("aria-expanded") !== "true" &&
+      !openedDropdownKeys.has(dropdownStableKey(element))
+    );
+
+    const dropdown = candidates[0];
+    if (!dropdown) return "";
+
+    const label = (
+      dropdown.getAttribute("aria-label") ||
+      dropdown.innerText ||
+      dropdown.textContent ||
+      "lista de respuestas"
+    ).trim().slice(0, 120);
+
+    dropdown.click();
+    openedDropdownKeys.add(dropdownStableKey(dropdown));
+    return label;
   }
 
   function collectPage() {
@@ -334,6 +432,10 @@
       '[role="combobox"]',
       '[role="option"]',
       '[role="menuitem"]',
+      '[role="listbox"] li',
+      '[role="menu"] li',
+      '[class*="dropdown-menu" i] li',
+      '[class*="select-menu" i] li',
       '[aria-haspopup="listbox"]',
       '[aria-haspopup="menu"]',
       '[data-value]',
@@ -407,6 +509,8 @@
                 value: option.value
               }))
               .filter(option => option.text)
+          : customDropdown
+          ? getCustomDropdownOptions(element)
           : [];
 
         const customDropdown = isCustomDropdown(element);
@@ -1554,6 +1658,51 @@
           details.push(action.question || "Opción seleccionada");
         }
 
+      } else if (
+        action.action === "select" &&
+        isCustomDropdown(element)
+      ) {
+        const key = dropdownStableKey(element);
+        const expanded = element.getAttribute("aria-expanded") === "true";
+
+        if (!expanded && !openedDropdownKeys.has(key)) {
+          element.click();
+          openedDropdownKeys.add(key);
+          openedDropdowns.push("lista desplegable");
+        } else {
+          const doc = element.ownerDocument || document;
+          const references = [
+            element.getAttribute("aria-controls"),
+            element.getAttribute("aria-owns")
+          ].filter(Boolean).flatMap(reference => reference.split(/\s+/));
+
+          let containers = references
+            .map(id => doc.getElementById(id))
+            .filter(Boolean);
+
+          if (!containers.length) {
+            containers = [...doc.querySelectorAll(
+              '[role="listbox"],[role="menu"],[class*="dropdown-menu" i],[class*="select-menu" i]'
+            )].filter(isVisible);
+          }
+
+          const candidates = containers.flatMap(container => [
+            ...(container.matches('[role="option"],[role="menuitem"],option,li,[data-value],button') ? [container] : []),
+            ...container.querySelectorAll('[role="option"],[role="menuitem"],option,li,[data-value],button')
+          ]);
+
+          const optionElement = candidates.find(candidate =>
+            isVisible(candidate) &&
+            String(candidate.innerText || candidate.textContent || "").trim().toLowerCase() === value.toLowerCase()
+          );
+
+          if (optionElement) {
+            optionElement.click();
+            applied++;
+            details.push(action.question || "Opción seleccionada");
+          }
+        }
+
       } else if (action.action === "click") {
         const label = (
           element.innerText ||
@@ -1588,7 +1737,7 @@
 
         if (
           element.matches(
-            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
+            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
           )
         ) {
           element.click();
@@ -1725,6 +1874,17 @@
         step <= maxQuestions && !stopRequested;
         step++
       ) {
+        // Abrir el siguiente cuadro de respuesta antes de analizar:
+        // así la IA recibe también las opciones que estaban ocultas.
+        const openedDropdown = openNextDropdown(openedDropdownKeys);
+        if (openedDropdown) {
+          report(
+            runId,
+            `Abriendo la lista de respuestas: ${openedDropdown}…`
+          );
+          await new Promise(resolve => setTimeout(resolve, 400));
+        }
+
         const snapshot = collectPage();
 
         report(
