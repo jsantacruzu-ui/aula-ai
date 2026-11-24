@@ -12,6 +12,7 @@
 // @match        http://*/*
 // @match        https://*/*
 // @exclude      https://app.hubspot.com/*
+// @all-frames   true
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
