@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.13
+// @version      0.3.14
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -275,6 +275,45 @@
     return [...new Set(elements)];
   }
 
+  function isCustomDropdown(element) {
+    if (!element || !element.matches) return false;
+
+    const role = (element.getAttribute("role") || "").toLowerCase();
+    const popup = (element.getAttribute("aria-haspopup") || "").toLowerCase();
+    const classes = String(element.className || "").toLowerCase();
+    const testId = (element.getAttribute("data-testid") || "").toLowerCase();
+
+    if (
+      role === "combobox" ||
+      popup === "listbox" ||
+      popup === "menu"
+    ) return true;
+
+    if (
+      /select|dropdown|combobox|answer.?choice|choice.?select/.test(classes) ||
+      /select|dropdown|combobox/.test(testId)
+    ) return true;
+
+    return (
+      element.matches('button[aria-expanded], [role="button"][aria-expanded]') &&
+      /select|dropdown|combo|choice|answer/.test(classes + " " + testId)
+    );
+  }
+
+  function dropdownStableKey(element) {
+    const text = (
+      element.getAttribute("aria-label") ||
+      element.getAttribute("title") ||
+      element.innerText ||
+      element.textContent ||
+      ""
+    ).trim().toLowerCase().replace(/\\s+/g, " ").slice(0, 120);
+
+    const id = element.id || "";
+    const classes = String(element.className || "").toLowerCase().slice(0, 100);
+    return [element.tagName, id, text, classes].join("|");
+  }
+
   function collectPage() {
     const roots = getRoots();
     const textParts = [];
@@ -292,7 +331,13 @@
       '[contenteditable="true"]',
       '[role="radio"]',
       '[role="checkbox"]',
+      '[role="combobox"]',
       '[role="option"]',
+      '[role="menuitem"]',
+      '[aria-haspopup="listbox"]',
+      '[aria-haspopup="menu"]',
+      '[data-value]',
+      'li[tabindex]',
       "[aria-checked]",
       "[aria-selected]",
       "[aria-pressed]",
@@ -364,6 +409,8 @@
               .filter(option => option.text)
           : [];
 
+        const customDropdown = isCustomDropdown(element);
+
         controls.push({
           control_index: index,
 
@@ -374,6 +421,8 @@
               ? "textarea"
               : tag === "select"
               ? "select"
+              : customDropdown
+              ? "combobox"
               : element.getAttribute("role") ||
                 (
                   element.isContentEditable
@@ -381,6 +430,8 @@
                     : tag
                 ),
 
+          dropdown: customDropdown,
+          expanded: element.getAttribute("aria-expanded"),
           label: String(label).trim().slice(0, 220),
           value: element.value || "",
           placeholder:
@@ -1413,9 +1464,10 @@
   // APLICAR RESPUESTAS
   // ==========================================
 
-  function applyActions(actions) {
+  function applyActions(actions, openedDropdownKeys = new Set()) {
     let applied = 0;
     const details = [];
+    const openedDropdowns = [];
 
     for (const action of actions || []) {
       const element = indexedControls.get(
@@ -1511,6 +1563,22 @@
           ""
         ).trim().toLowerCase();
 
+        // Primero se abre el cuadro desplegable; la opción se elige
+        // en una segunda lectura, cuando la lista ya esté visible.
+        if (isCustomDropdown(element)) {
+          const expanded = element.getAttribute("aria-expanded") === "true";
+          const key = dropdownStableKey(element);
+
+          if (!expanded && !openedDropdownKeys.has(key)) {
+            element.click();
+            openedDropdownKeys.add(key);
+            openedDropdowns.push(label || "lista desplegable");
+            break;
+          }
+
+          continue;
+        }
+
         // Prohibido accionar botones finales.
         if (
           /submit|finish|finalizar|entregar|enviar|terminar|salir|exit|complete|send|next|siguiente|continuar|check answers|comprobar/i.test(label)
@@ -1520,7 +1588,7 @@
 
         if (
           element.matches(
-            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[aria-checked],[aria-selected],[aria-pressed],label'
+            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
           )
         ) {
           element.click();
@@ -1530,7 +1598,7 @@
       }
     }
 
-    return { applied, details };
+    return { applied, details, openedDropdowns };
   }
 
   function clickNext() {
@@ -1650,6 +1718,7 @@
       const token = await getToken();
 
       let audioPromise = initialAudioPromise;
+      const openedDropdownKeys = new Set();
 
       for (
         let step = 1;
@@ -1749,7 +1818,24 @@
           return;
         }
 
-        const applied = applyActions(result.actions);
+        const applied = applyActions(
+          result.actions,
+          openedDropdownKeys
+        );
+
+        if (applied.openedDropdowns.length) {
+          report(
+            runId,
+            `Abrí el cuadro desplegable: ${applied.openedDropdowns.join(", ")}. Leyendo las opciones disponibles…`
+          );
+
+          // Esperar a que Cambridge renderice la lista de opciones.
+          await new Promise(resolve => setTimeout(resolve, 450));
+
+          // Volver a analizar la misma pregunta, sin consumir un paso.
+          step--;
+          continue;
+        }
 
         report(
           runId,
@@ -1798,6 +1884,7 @@
         await new Promise(resolve =>
           setTimeout(resolve, 1500)
         );
+        openedDropdownKeys.clear();
 
         // Para la siguiente pregunta, intentar escuchar
         // el siguiente reproductor automáticamente.
