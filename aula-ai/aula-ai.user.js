@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.12
+// @version      0.3.13
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1573,40 +1573,27 @@
       'button,[role="button"],input[type="button"],input[type="submit"]'
     ).filter(isVisible);
 
-    const candidates = elements.map(element => {
-      const labels = [
+    const exactAction =
+      /^(check|check answer|check answers|check my answers|submit|submit answer|submit answers|send|send answers|enviar|enviar respuesta|enviar respuestas|entregar|entregar respuesta|entregar respuestas|comprobar|comprobar respuesta|comprobar respuestas|verificar|verificar respuestas|finish|finish activity|finalizar|finalizar actividad)$/i;
+
+    const candidates = elements.map(element => ({
+      element,
+      labels: [
         element.innerText,
         element.value,
         element.getAttribute("aria-label"),
         element.getAttribute("title"),
         element.getAttribute("data-testid")
-      ].filter(Boolean);
+      ]
+        .filter(Boolean)
+        .map(label => String(label).replace(/\s+/g, " ").trim())
+    }));
 
-      return {
-        element,
-        label: labels.join(" ").replace(/\s+/g, " ").trim()
-      };
-    });
-
-    const submit = candidates.find(({ element, label }) => {
-      const normalized = label.toLowerCase();
-      if (!normalized) return false;
-
-      // Coincidencias intencionalmente específicas para evitar
-      // confundir Entregar/Comprobar con Salir, Continuar o Siguiente.
-      const exactAction =
-        /^(check|check answer|check answers|check my answers|submit|submit answer|submit answers|send|send answers|enviar|enviar respuesta|enviar respuestas|entregar|entregar respuesta|entregar respuestas|comprobar|comprobar respuesta|comprobar respuestas|verificar|verificar respuestas|finish|finish activity|finalizar|finalizar actividad)$/i;
-
-      const titleOrAria =
-        [
-          element.getAttribute("aria-label"),
-          element.getAttribute("title"),
-          element.getAttribute("data-testid")
-        ].filter(Boolean).join(" ").trim();
-
-      return exactAction.test(label) ||
-        exactAction.test(titleOrAria);
-    });
+    // Comprobar cada etiqueta por separado: el texto visible y aria-label
+    // pueden repetir el mismo nombre y no deben invalidar la coincidencia.
+    const submit = candidates.find(({ labels }) =>
+      labels.some(label => exactAction.test(label))
+    );
 
     if (!submit) return null;
 
