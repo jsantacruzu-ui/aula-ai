@@ -2,8 +2,8 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.2.0
-// @description  Tutor automático con lectura de texto, imágenes, audio y fotogramas de vídeo.
+// @version      0.3.0
+// @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
 // @supportURL   https://github.com/jsantacruzu-ui/aula-ai
@@ -23,16 +23,20 @@
 (() => {
   "use strict";
 
-  const SUPABASE = "https://olkhplrgtcxrrnpmbjgd.supabase.co";
-  const WORKER = "https://aula-ai.jsantacruzu.workers.dev/api/solve";
+  const SUPABASE =
+    "https://olkhplrgtcxrrnpmbjgd.supabase.co";
+
+  const WORKER =
+    "https://aula-ai.jsantacruzu.workers.dev/api/solve";
 
   const TOKEN_KEY = "aula_access_token";
   const REFRESH_KEY = "aula_refresh_token";
   const EMAIL_KEY = "aula_email";
 
   const MAX_IMAGES = 4;
-  const MAX_IMAGE_CHARS = 1150000;
-  const AUDIO_DURATION_MS = 12000;
+  const MAX_IMAGE_SIZE = 1100000;
+  const MAX_AUDIO_MS = 90000;
+  const MAX_AUDIO_BYTES = 1800000;
 
   const TOP = window.top === window.self;
 
@@ -41,7 +45,7 @@
   let setPanelStatus = () => {};
 
   // ==========================================
-  // CONEXIÓN CON AULA AI Y SUPABASE
+  // CONEXIÓN CON AULA AI
   // ==========================================
 
   function request(method, url, body, token) {
@@ -51,21 +55,27 @@
         url,
         headers: {
           "Content-Type": "application/json",
+
           ...(token ? {
             Authorization: `Bearer ${token}`
           } : {}),
+
           ...(url.startsWith(SUPABASE) ? {
-            apikey: "sb_publishable_0db7VfdBlXTrubYldbH_TQ_T0vrSbKV"
+            apikey:
+              "sb_publishable_0db7VfdBlXTrubYldbH_TQ_T0vrSbKV"
           } : {})
         },
+
         data: body ? JSON.stringify(body) : undefined,
-        timeout: 90000,
+        timeout: 120000,
 
         onload: response => {
           let data;
 
           try {
-            data = JSON.parse(response.responseText || "{}");
+            data = JSON.parse(
+              response.responseText || "{}"
+            );
           } catch {
             reject(
               new Error("El servidor devolvió una respuesta no válida.")
@@ -73,7 +83,10 @@
             return;
           }
 
-          if (response.status < 200 || response.status >= 300) {
+          if (
+            response.status < 200 ||
+            response.status >= 300
+          ) {
             reject(
               new Error(
                 data.error_description ||
@@ -90,11 +103,15 @@
         },
 
         onerror: () => {
-          reject(new Error("No se pudo conectar con el servidor."));
+          reject(
+            new Error("No se pudo conectar con el servidor.")
+          );
         },
 
         ontimeout: () => {
-          reject(new Error("La solicitud tardó demasiado."));
+          reject(
+            new Error("La solicitud tardó demasiado.")
+          );
         }
       });
     });
@@ -107,9 +124,20 @@
       { email, password }
     );
 
-    await GM_setValue(TOKEN_KEY, data.access_token);
-    await GM_setValue(REFRESH_KEY, data.refresh_token);
-    await GM_setValue(EMAIL_KEY, data.user?.email || email);
+    await GM_setValue(
+      TOKEN_KEY,
+      data.access_token
+    );
+
+    await GM_setValue(
+      REFRESH_KEY,
+      data.refresh_token
+    );
+
+    await GM_setValue(
+      EMAIL_KEY,
+      data.user?.email || email
+    );
   }
 
   async function getToken() {
@@ -117,7 +145,7 @@
     const refresh = await GM_getValue(REFRESH_KEY, "");
 
     if (!token) {
-      throw new Error("Primero inicia sesión en Aula AI.");
+      throw new Error("Inicia sesión en Aula AI.");
     }
 
     try {
@@ -133,7 +161,7 @@
     } catch {
       if (!refresh) {
         throw new Error(
-          "Tu sesión venció. Inicia sesión nuevamente."
+          "Tu sesión ha vencido. Inicia sesión nuevamente."
         );
       }
 
@@ -153,7 +181,7 @@
   }
 
   // ==========================================
-  // UTILIDADES DEL DOCUMENTO
+  // ELEMENTOS Y DOCUMENTOS
   // ==========================================
 
   function isVisible(element) {
@@ -181,6 +209,7 @@
       const root = roots.shift();
 
       if (!root || visited.has(root)) continue;
+
       visited.add(root);
 
       if (!root.querySelectorAll) continue;
@@ -193,6 +222,18 @@
     }
 
     return [...visited];
+  }
+
+  function allElements(selector) {
+    const elements = [];
+
+    for (const root of getRoots()) {
+      elements.push(
+        ...root.querySelectorAll(selector)
+      );
+    }
+
+    return [...new Set(elements)];
   }
 
   function collectPage() {
@@ -228,7 +269,9 @@
       }
 
       for (const element of root.querySelectorAll(selector)) {
-        if (seen.has(element) || !isVisible(element)) continue;
+        if (seen.has(element) || !isVisible(element)) {
+          continue;
+        }
 
         seen.add(element);
 
@@ -279,48 +322,437 @@
 
         controls.push({
           control_index: index,
+
           type:
             tag === "input"
-              ? (element.type || "text")
+              ? element.type || "text"
               : tag === "textarea"
               ? "textarea"
               : tag === "select"
               ? "select"
               : element.getAttribute("role") ||
-                (element.isContentEditable
-                  ? "contenteditable"
-                  : tag),
+                (
+                  element.isContentEditable
+                    ? "contenteditable"
+                    : tag
+                ),
+
           label: String(label).trim().slice(0, 220),
           value: element.value || "",
-          placeholder: element.getAttribute("placeholder") || "",
+          placeholder:
+            element.getAttribute("placeholder") || "",
           options,
           disabled: !!element.disabled
         });
       }
     }
 
-    const frames = [...document.querySelectorAll("iframe,frame")]
-      .map(frame => frame.src || "(marco sin dirección)");
-
     return {
       title: document.title || "Actividad",
       pageText: [...new Set(textParts)]
         .join("\n\n")
         .slice(0, 14000),
+
       controls: controls.slice(0, 100),
+
       diagnostics: {
         url: location.href,
-        frames: frames.length,
-        canvases: document.querySelectorAll("canvas").length,
-        images: document.querySelectorAll("img").length,
-        audios: document.querySelectorAll("audio").length,
-        videos: document.querySelectorAll("video").length
+        frames:
+          document.querySelectorAll("iframe,frame").length,
+        images: allElements("img").length,
+        canvases: allElements("canvas").length,
+        audios: allElements("audio").length,
+        videos: allElements("video").length
       }
     };
   }
 
   // ==========================================
-  // CONVERSIÓN DE IMÁGENES A JPEG
+  // DETECCIÓN DEL REPRODUCTOR
+  // ==========================================
+
+  function findMedia() {
+    const candidates = allElements("audio,video")
+      .filter(media =>
+        !media.error &&
+        (
+          media.currentSrc ||
+          media.src ||
+          media.readyState > 0
+        )
+      );
+
+    candidates.sort((a, b) => {
+      const score = media =>
+        (!media.paused ? 100 : 0) +
+        (media.currentSrc ? 30 : 0) +
+        (media.readyState >= 2 ? 20 : 0) +
+        (!media.muted ? 10 : 0);
+
+      return score(b) - score(a);
+    });
+
+    return candidates[0] || null;
+  }
+
+  function findPlayButton() {
+    const selectors = [
+      "button",
+      '[role="button"]',
+      "[aria-label]",
+      "[title]",
+      '[data-testid*="play" i]',
+      '[class*="play" i]'
+    ].join(",");
+
+    const candidates = allElements(selectors)
+      .filter(isVisible);
+
+    return candidates.find(element => {
+      const label = (
+        element.getAttribute("aria-label") ||
+        element.getAttribute("title") ||
+        element.getAttribute("data-testid") ||
+        element.innerText ||
+        ""
+      ).trim().toLowerCase();
+
+      return (
+        /^(play|play audio|listen|listen audio|reproducir|reproducir audio|escuchar|iniciar audio)$/i.test(label) ||
+        /^(play|listen|reproducir|escuchar)[-_ ]button$/i.test(label)
+      );
+    }) || null;
+  }
+
+  // ==========================================
+  // CONVERSIÓN DE AUDIO
+  // ==========================================
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        resolve(reader.result);
+      };
+
+      reader.onerror = () => {
+        reject(
+          new Error("No se pudo convertir la grabación.")
+        );
+      };
+
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // ==========================================
+  // REPRODUCIR Y ESCUCHAR AUTOMÁTICAMENTE
+  // ==========================================
+
+  async function startRecording(media) {
+    if (typeof MediaRecorder === "undefined") {
+      return {
+        audioBase64: "",
+        note: "El navegador no permite grabar este reproductor."
+      };
+    }
+
+    if (media.ended) {
+      try {
+        media.currentTime = 0;
+      } catch {}
+    }
+
+    // MUY IMPORTANTE:
+    // Se llama a play() antes de cualquier espera.
+    // Así aprovechamos el clic del usuario en Analizar.
+    let playPromise;
+
+    try {
+      playPromise = media.paused
+        ? media.play()
+        : Promise.resolve();
+
+    } catch (error) {
+      return {
+        audioBase64: "",
+        note:
+          "No se pudo iniciar la reproducción: " +
+          error.message
+      };
+    }
+
+    const capture =
+      media.captureStream ||
+      media.mozCaptureStream;
+
+    if (!capture) {
+      return {
+        audioBase64: "",
+        note:
+          "El reproductor no permite capturar su audio. " +
+          "Necesitamos probar una captura de pestaña autorizada."
+      };
+    }
+
+    let originalStream;
+
+    try {
+      originalStream = capture.call(media);
+
+    } catch (error) {
+      return {
+        audioBase64: "",
+        note:
+          "No se pudo acceder al sonido del reproductor: " +
+          error.message
+      };
+    }
+
+    let tracks = originalStream.getAudioTracks();
+
+    // Algunos reproductores crean la pista después de iniciar Play.
+    if (!tracks.length) {
+      try {
+        await playPromise;
+
+        await new Promise(resolve =>
+          setTimeout(resolve, 400)
+        );
+
+        originalStream = capture.call(media);
+        tracks = originalStream.getAudioTracks();
+
+      } catch (error) {
+        return {
+          audioBase64: "",
+          note:
+            "Chrome no permitió iniciar el audio automáticamente: " +
+            error.message +
+            ". En ese reproductor tendrás que pulsar Play una vez."
+        };
+      }
+    }
+
+    if (!tracks.length) {
+      return {
+        audioBase64: "",
+        note:
+          "El reproductor no está exponiendo una pista de audio."
+      };
+    }
+
+    const stream = new MediaStream(tracks);
+
+    const formats = [
+      "audio/webm;codecs=opus",
+      "audio/ogg;codecs=opus",
+      "audio/webm"
+    ];
+
+    const mimeType = formats.find(type =>
+      MediaRecorder.isTypeSupported(type)
+    );
+
+    let recorder;
+
+    try {
+      recorder = mimeType
+        ? new MediaRecorder(stream, {
+            mimeType,
+            audioBitsPerSecond: 48000
+          })
+        : new MediaRecorder(stream, {
+            audioBitsPerSecond: 48000
+          });
+
+    } catch (error) {
+      return {
+        audioBase64: "",
+        note:
+          "No se pudo iniciar la grabación: " +
+          error.message
+      };
+    }
+
+    const chunks = [];
+
+    return new Promise(resolve => {
+      let completed = false;
+      let stopReason = "";
+
+      let timer;
+
+      const finish = reason => {
+        if (completed) return;
+
+        stopReason = reason || stopReason;
+        completed = true;
+
+        clearTimeout(timer);
+
+        if (recorder.state === "recording") {
+          recorder.stop();
+        }
+      };
+
+      recorder.ondataavailable = event => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = event => {
+        finish(
+          event.error?.message ||
+          "Error durante la grabación."
+        );
+      };
+
+      recorder.onstop = async () => {
+        media.removeEventListener(
+          "ended",
+          onEnded
+        );
+
+        const blob = new Blob(chunks, {
+          type: recorder.mimeType || "audio/webm"
+        });
+
+        if (!blob.size) {
+          resolve({
+            audioBase64: "",
+            note:
+              stopReason ||
+              "No se capturó sonido del reproductor."
+          });
+          return;
+        }
+
+        if (blob.size > MAX_AUDIO_BYTES) {
+          resolve({
+            audioBase64: "",
+            note:
+              "El audio es demasiado grande. " +
+              "Se necesita un fragmento más corto."
+          });
+          return;
+        }
+
+        try {
+          const dataUrl = await blobToDataUrl(blob);
+
+          resolve({
+            audioBase64: dataUrl,
+            note:
+              "Audio capturado y listo para transcribir. " +
+              `Duración aproximada de grabación: ${Math.round(blob.size / 6000)} segundos.`
+          });
+
+        } catch (error) {
+          resolve({
+            audioBase64: "",
+            note: error.message
+          });
+        }
+      };
+
+      function onEnded() {
+        finish("El audio terminó de reproducirse.");
+      }
+
+      try {
+        recorder.start(500);
+
+        media.addEventListener(
+          "ended",
+          onEnded,
+          { once: true }
+        );
+
+        // Grabar hasta que termine el audio.
+        // Máximo 90 segundos por ejecución.
+        timer = setTimeout(() => {
+          finish(
+            "Se alcanzó el límite de 90 segundos de grabación."
+          );
+        }, MAX_AUDIO_MS);
+
+        playPromise.catch(error => {
+          finish(
+            "Chrome bloqueó la reproducción automática: " +
+            error.message +
+            ". Pulsa Play una vez en ese reproductor."
+          );
+        });
+
+      } catch (error) {
+        resolve({
+          audioBase64: "",
+          note:
+            "No se pudo grabar el audio: " +
+            error.message
+        });
+      }
+    });
+  }
+
+  function waitForMedia() {
+    return new Promise(resolve => {
+      let attempts = 0;
+
+      const timer = setInterval(() => {
+        attempts++;
+
+        const media = findMedia();
+
+        if (media) {
+          clearInterval(timer);
+          resolve(media);
+          return;
+        }
+
+        if (attempts >= 15) {
+          clearInterval(timer);
+          resolve(null);
+        }
+      }, 200);
+    });
+  }
+
+  function startAudioCaptureFromClick() {
+    // Primero intentamos localizar el reproductor.
+    let media = findMedia();
+
+    if (media) {
+      return startRecording(media);
+    }
+
+    // Si todavía no hay elemento multimedia,
+    // intentamos pulsar el control Play de la página.
+    const playButton = findPlayButton();
+
+    if (playButton) {
+      playButton.click();
+    }
+
+    return waitForMedia().then(foundMedia => {
+      if (!foundMedia) {
+        return {
+          audioBase64: "",
+          note:
+            "No encontré un reproductor de audio accesible. " +
+            "Puede estar dentro de un reproductor protegido o externo."
+        };
+      }
+
+      return startRecording(foundMedia);
+    });
+  }
+
+  // ==========================================
+  // CAPTURAR IMÁGENES Y FOTOGRAMAS
   // ==========================================
 
   function imageToDataUrl(source, description) {
@@ -339,23 +771,35 @@
 
       if (!width || !height) return null;
 
-      const maxDimension = 1100;
       const scale = Math.min(
         1,
-        maxDimension / Math.max(width, height)
+        1100 / Math.max(width, height)
       );
 
       const canvas = document.createElement("canvas");
 
-      canvas.width = Math.max(1, Math.round(width * scale));
-      canvas.height = Math.max(1, Math.round(height * scale));
+      canvas.width = Math.max(
+        1,
+        Math.round(width * scale)
+      );
+
+      canvas.height = Math.max(
+        1,
+        Math.round(height * scale)
+      );
 
       const context = canvas.getContext("2d");
 
       if (!context) return null;
 
       context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      context.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
 
       context.drawImage(
         source,
@@ -367,18 +811,16 @@
 
       let dataUrl = canvas.toDataURL(
         "image/jpeg",
-        0.72
+        0.70
       );
 
-      if (dataUrl.length > MAX_IMAGE_CHARS) {
+      if (dataUrl.length > MAX_IMAGE_SIZE) {
         const smaller = document.createElement("canvas");
 
         smaller.width = Math.round(canvas.width * 0.65);
         smaller.height = Math.round(canvas.height * 0.65);
 
-        const smallerContext = smaller.getContext("2d");
-
-        smallerContext.drawImage(
+        smaller.getContext("2d").drawImage(
           canvas,
           0,
           0,
@@ -388,11 +830,11 @@
 
         dataUrl = smaller.toDataURL(
           "image/jpeg",
-          0.58
+          0.55
         );
       }
 
-      if (dataUrl.length > MAX_IMAGE_CHARS) {
+      if (dataUrl.length > MAX_IMAGE_SIZE) {
         return null;
       }
 
@@ -403,8 +845,7 @@
 
     } catch (error) {
       console.warn(
-        "Aula AI: imagen no accesible:",
-        description,
+        "Aula AI: no se pudo capturar una imagen:",
         error.message
       );
 
@@ -412,25 +853,10 @@
     }
   }
 
-  function allElements(selector) {
-    const elements = [];
-
-    for (const root of getRoots()) {
-      elements.push(...root.querySelectorAll(selector));
-    }
-
-    return [...new Set(elements)];
-  }
-
-  // ==========================================
-  // CAPTURA DE IMÁGENES Y GRÁFICOS
-  // ==========================================
-
   async function captureImages() {
     const images = [];
     const skipped = [];
 
-    // Primero, imágenes visibles de la actividad.
     const imageElements = allElements("img")
       .filter(element =>
         isVisible(element) &&
@@ -453,22 +879,17 @@
       const result = imageToDataUrl(
         image,
         "Imagen de la actividad: " +
-        (image.alt || image.getAttribute("title") || "sin descripción")
+        (image.alt || "sin descripción")
       );
 
-      if (result) {
-        images.push(result);
-      } else {
-        skipped.push("Una imagen no permitió su captura.");
-      }
+      if (result) images.push(result);
+      else skipped.push("Una imagen no permitió su captura.");
     }
 
-    // Capturar gráficos y ejercicios dibujados en canvas.
-    const canvases = allElements("canvas")
-      .filter(isVisible);
-
-    for (const canvas of canvases) {
-      if (images.length >= 3) break;
+    for (const canvas of allElements("canvas")) {
+      if (!isVisible(canvas) || images.length >= 3) {
+        continue;
+      }
 
       const result = imageToDataUrl(
         canvas,
@@ -479,113 +900,31 @@
         images.push(result);
       } else {
         skipped.push(
-          "Un canvas está protegido o no permitió leer sus píxeles."
+          "Un gráfico no permitió leer sus píxeles."
         );
       }
     }
 
-    // Capturar fotogramas del vídeo.
-    const videos = allElements("video")
-      .filter(video =>
-        isVisible(video) &&
-        video.readyState >= 2 &&
-        video.videoWidth > 0
-      );
-
-    for (const video of videos) {
-      if (images.length >= MAX_IMAGES) break;
-
-      const originalTime = video.currentTime;
-      const wasPlaying = !video.paused && !video.ended;
-
-      const duration = video.duration;
-      const sampleTimes = [originalTime];
-
-      // Para vídeos que permiten desplazarse, tomar otros fotogramas.
+    for (const video of allElements("video")) {
       if (
-        Number.isFinite(duration) &&
-        duration > 4 &&
-        video.seekable?.length
+        images.length >= MAX_IMAGES ||
+        !isVisible(video) ||
+        video.readyState < 2
       ) {
-        sampleTimes.push(
-          duration * 0.35,
-          duration * 0.70
-        );
+        continue;
       }
 
-      const uniqueTimes = [...new Set(
-        sampleTimes.map(time =>
-          Math.max(0, Math.min(time, duration || time))
-        )
-      )];
+      const result = imageToDataUrl(
+        video,
+        `Fotograma de vídeo en el segundo ${Math.round(video.currentTime)}.`
+      );
 
-      try {
-        if (wasPlaying) {
-          video.pause();
-        }
-
-        for (const time of uniqueTimes) {
-          if (images.length >= MAX_IMAGES) break;
-
-          if (Math.abs(video.currentTime - time) > 0.35) {
-            await new Promise(resolve => {
-              let completed = false;
-
-              const finish = () => {
-                if (completed) return;
-                completed = true;
-                video.removeEventListener("seeked", finish);
-                clearTimeout(timer);
-                resolve();
-              };
-
-              const timer = setTimeout(finish, 1800);
-
-              video.addEventListener(
-                "seeked",
-                finish,
-                { once: true }
-              );
-
-              try {
-                video.currentTime = time;
-              } catch {
-                finish();
-              }
-            });
-          }
-
-          if (video.readyState >= 2) {
-            const result = imageToDataUrl(
-              video,
-              `Fotograma de vídeo en segundo ${Math.round(video.currentTime)}.`
-            );
-
-            if (result) {
-              images.push(result);
-            } else {
-              skipped.push(
-                "Un fotograma del vídeo no permitió captura por restricciones de origen."
-              );
-            }
-          }
-        }
-
-      } catch (error) {
+      if (result) {
+        images.push(result);
+      } else {
         skipped.push(
-          "No se pudo extraer un fotograma: " + error.message
+          "Un fotograma de vídeo no permitió captura."
         );
-
-      } finally {
-        try {
-          if (Number.isFinite(originalTime)) {
-            video.currentTime = originalTime;
-          }
-
-          if (wasPlaying) {
-            await video.play().catch(() => {});
-          }
-        } catch {}
       }
     }
 
@@ -596,153 +935,7 @@
   }
 
   // ==========================================
-  // CAPTURA DE AUDIO DEL REPRODUCTOR
-  // ==========================================
-
-  function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(
-        new Error("No se pudo leer el archivo de audio.")
-      );
-
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  async function capturePlayingAudio() {
-    if (
-      typeof MediaRecorder === "undefined" ||
-      typeof MediaStream === "undefined"
-    ) {
-      return {
-        audioBase64: "",
-        note: "Este navegador no admite grabación de audio mediante este método."
-      };
-    }
-
-    const mediaElements = [
-      ...allElements("audio,video")
-    ];
-
-    const playing = mediaElements.filter(media =>
-      !media.paused &&
-      !media.ended &&
-      media.readyState >= 2
-    );
-
-    if (!playing.length) {
-      return {
-        audioBase64: "",
-        note: "No hay audio reproduciéndose. Pulsa Play en el reproductor y vuelve a analizar."
-      };
-    }
-
-    let lastError = "";
-
-    for (const media of playing) {
-      try {
-        const capture =
-          media.captureStream ||
-          media.mozCaptureStream;
-
-        if (!capture) {
-          lastError = "El reproductor no permite capturar su audio.";
-          continue;
-        }
-
-        const originalStream = capture.call(media);
-        const audioTracks = originalStream.getAudioTracks();
-
-        if (!audioTracks.length) {
-          lastError = "El reproductor no expone una pista de audio.";
-          continue;
-        }
-
-        const stream = new MediaStream(audioTracks);
-
-        const mimeCandidates = [
-          "audio/webm;codecs=opus",
-          "audio/ogg;codecs=opus",
-          "audio/webm",
-          "audio/mp4"
-        ];
-
-        const mimeType = mimeCandidates.find(type =>
-          MediaRecorder.isTypeSupported(type)
-        );
-
-        const recorder = mimeType
-          ? new MediaRecorder(stream, { mimeType })
-          : new MediaRecorder(stream);
-
-        const chunks = [];
-
-        const audioReady = new Promise((resolve, reject) => {
-          recorder.ondataavailable = event => {
-            if (event.data?.size) {
-              chunks.push(event.data);
-            }
-          };
-
-          recorder.onerror = event => {
-            reject(
-              event.error ||
-              new Error("Error durante la grabación de audio.")
-            );
-          };
-
-          recorder.onstop = resolve;
-
-          recorder.start(500);
-
-          setTimeout(() => {
-            if (recorder.state === "recording") {
-              recorder.stop();
-            }
-          }, AUDIO_DURATION_MS);
-        });
-
-        await audioReady;
-
-        const blob = new Blob(chunks, {
-          type: recorder.mimeType || "audio/webm"
-        });
-
-        if (!blob.size) {
-          lastError = "La grabación no contiene sonido.";
-          continue;
-        }
-
-        if (blob.size > 1500000) {
-          lastError = "El fragmento de audio es demasiado grande.";
-          continue;
-        }
-
-        const dataUrl = await blobToDataUrl(blob);
-
-        return {
-          audioBase64: dataUrl,
-          note: "Audio capturado durante hasta 12 segundos."
-        };
-
-      } catch (error) {
-        lastError = error.message || "No se pudo capturar el audio.";
-      }
-    }
-
-    return {
-      audioBase64: "",
-      note:
-        lastError ||
-        "No se pudo capturar el audio de los reproductores disponibles."
-    };
-  }
-
-  // ==========================================
-  // APLICAR RESPUESTAS A CONTROLES
+  // APLICAR RESPUESTAS
   // ==========================================
 
   function applyActions(actions) {
@@ -750,15 +943,15 @@
     const details = [];
 
     for (const action of actions || []) {
-      const index = Number(action.control_index);
-
       const element = document.querySelector(
-        `[data-aula-ai-index="${index}"]`
+        `[data-aula-ai-index="${Number(action.control_index)}"]`
       );
 
       if (!element || element.disabled) continue;
 
-      const value = String(action.value ?? "").trim();
+      const value = String(
+        action.value ?? ""
+      ).trim();
 
       if (
         action.action === "fill" &&
@@ -787,7 +980,10 @@
               : HTMLInputElement.prototype;
 
           const setter =
-            Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+            Object.getOwnPropertyDescriptor(
+              prototype,
+              "value"
+            )?.set;
 
           if (setter) {
             setter.call(element, value);
@@ -840,7 +1036,7 @@
           ""
         ).trim().toLowerCase();
 
-        // Nunca pulsar botones de entrega, envío o finalización.
+        // Prohibido accionar botones finales.
         if (
           /submit|finish|finalizar|entregar|enviar|terminar|salir|exit|complete|send|next|siguiente|continuar|check answers|comprobar/i.test(label)
         ) {
@@ -863,11 +1059,9 @@
   }
 
   function clickNext() {
-    const elements = [
-      ...document.querySelectorAll(
-        'button,[role="button"],input[type="button"],a'
-      )
-    ].filter(isVisible);
+    const elements = allElements(
+      'button,[role="button"],input[type="button"],a'
+    ).filter(isVisible);
 
     const next = elements.find(element => {
       const label = (
@@ -898,7 +1092,7 @@
   }
 
   // ==========================================
-  // ESTADOS Y COMUNICACIÓN ENTRE MARCOS
+  // COMUNICACIÓN ENTRE MARCOS
   // ==========================================
 
   function report(runId, message) {
@@ -914,22 +1108,37 @@
   }
 
   function sendToChildFrames(message) {
-    for (let i = 0; i < window.frames.length; i++) {
+    for (
+      let index = 0;
+      index < window.frames.length;
+      index++
+    ) {
       try {
-        window.frames[i].postMessage(message, "*");
+        window.frames[index].postMessage(
+          message,
+          "*"
+        );
       } catch {}
     }
   }
 
   // ==========================================
-  // ANÁLISIS DE LA ACTIVIDAD
+  // ANÁLISIS DE CADA ACTIVIDAD
   // ==========================================
 
-  async function analyzeFrame(runId, maxQuestions, automatic, captureAudio) {
+  async function analyzeFrame(
+    runId,
+    maxQuestions,
+    automatic,
+    captureAudio,
+    initialAudioPromise
+  ) {
     stopRequested = false;
 
     try {
       const token = await getToken();
+
+      let audioPromise = initialAudioPromise;
 
       for (
         let step = 1;
@@ -940,52 +1149,60 @@
 
         report(
           runId,
-          `Leyendo «${snapshot.title}» y capturando material multimedia…`
+          `Leyendo la actividad: ${snapshot.title}`
         );
 
-        // 1. Capturar imágenes y fotogramas.
+        // Capturar texto e imágenes.
         const visual = await captureImages();
 
-        // 2. Capturar audio si hay un reproductor activo.
+        // Esperar el audio que comenzó al pulsar Analizar.
         let audio = {
           audioBase64: "",
-          note: "Captura de audio desactivada."
+          note: "No se solicitó captura de audio."
         };
 
         if (captureAudio) {
-          audio = await capturePlayingAudio();
-        }
-
-        report(
-          runId,
-          `Material encontrado: ${visual.images.length} imagen(es), ` +
-          `${snapshot.controls.length} control(es). ${audio.note}`
-        );
-
-        if (
-          !snapshot.pageText.trim() &&
-          !snapshot.controls.length &&
-          !visual.images.length &&
-          !audio.audioBase64
-        ) {
           report(
             runId,
-            `No se pudo leer el contenido de este marco. URL: ${location.href}. ` +
-            `Canvas: ${snapshot.diagnostics.canvases}; ` +
-            `imágenes: ${snapshot.diagnostics.images}; ` +
-            `audio: ${snapshot.diagnostics.audios}; ` +
-            `vídeos: ${snapshot.diagnostics.videos}.`
+            "Aula AI está escuchando el reproductor. " +
+            "Espera mientras termina el audio…"
+          );
+
+          audio = audioPromise
+            ? await audioPromise
+            : await startAudioCaptureFromClick();
+        }
+
+        if (!snapshot.pageText.trim() &&
+            !snapshot.controls.length &&
+            !visual.images.length &&
+            !audio.audioBase64) {
+
+          report(
+            runId,
+            `No se pudo obtener contenido de la actividad. ` +
+            `Página: ${location.href}. ` +
+            `Audio: ${audio.note}`
           );
 
           return;
         }
+
+        report(
+          runId,
+          `Material preparado: ${visual.images.length} imágenes, ` +
+          `${snapshot.controls.length} controles. ` +
+          `${audio.audioBase64 ? "Audio capturado." : audio.note}`
+        );
 
         const requestBody = {
           title: snapshot.title,
           pageText: snapshot.pageText,
           controls: snapshot.controls,
           images: visual.images,
-          audioBase64: audio.audioBase64 || undefined
+
+          audioBase64:
+            audio.audioBase64 || undefined
         };
 
         const result = await request(
@@ -998,11 +1215,11 @@
         if (!result.actions?.length) {
           report(
             runId,
-            `No se propusieron respuestas. ` +
-            `${result.summary || result.stop_reason || "No se reconoció una pregunta resoluble."}\n` +
-            `Imágenes enviadas: ${visual.images.length}. ` +
+            `No se encontraron respuestas aplicables. ` +
+            `${result.summary || result.stop_reason || "La IA no identificó una pregunta resoluble."}\n` +
+            `Imágenes: ${visual.images.length}. ` +
             `Controles: ${snapshot.controls.length}. ` +
-            `Audio: ${audio.audioBase64 ? "capturado" : audio.note}\n` +
+            `Audio: ${audio.audioBase64 ? "transmitido para transcripción" : audio.note}\n` +
             `${visual.skipped.join(" ")}`
           );
 
@@ -1028,25 +1245,33 @@
         if (!clickNext()) {
           report(
             runId,
-            "Se colocaron respuestas, pero no se encontró un botón seguro para continuar. No se pulsó Entregar ni Enviar."
+            "Se colocaron respuestas, pero no encontré un botón seguro para continuar. No se pulsó Entregar ni Enviar."
           );
 
           return;
         }
 
-        await new Promise(resolve => setTimeout(resolve, 1600));
+        await new Promise(resolve =>
+          setTimeout(resolve, 1500)
+        );
+
+        // Para la siguiente pregunta, intentar escuchar
+        // el siguiente reproductor automáticamente.
+        audioPromise = captureAudio
+          ? startAudioCaptureFromClick()
+          : null;
       }
 
     } catch (error) {
       report(
         runId,
-        `Error en «${document.title}»: ${error.message}`
+        `Error en ${document.title}: ${error.message}`
       );
     }
   }
 
   // ==========================================
-  // PANEL FLOTANTE
+  // PANEL FLOTANTE DE AULA AI
   // ==========================================
 
   function createPanel() {
@@ -1060,10 +1285,13 @@
     const host = document.createElement("div");
 
     host.id = "aula-ai-userscript";
+
     host.style.cssText =
       "position:fixed;z-index:2147483647;right:16px;bottom:16px";
 
-    const shadow = host.attachShadow({ mode: "open" });
+    const shadow = host.attachShadow({
+      mode: "open"
+    });
 
     shadow.innerHTML = `
       <style>
@@ -1074,11 +1302,11 @@
 
         .launcher {
           background: #172238;
-          color: #fff;
+          color: white;
           border: 0;
           border-radius: 24px;
           padding: 12px 18px;
-          font-weight: 700;
+          font-weight: bold;
           cursor: pointer;
           box-shadow: 0 4px 18px #0004;
         }
@@ -1086,7 +1314,7 @@
         .panel {
           display: none;
           width: 320px;
-          background: #fff;
+          background: white;
           color: #182338;
           border-radius: 14px;
           padding: 16px;
@@ -1131,8 +1359,8 @@
           border: 0;
           border-radius: 8px;
           background: #315bea;
-          color: #fff;
-          font-weight: 700;
+          color: white;
+          font-weight: bold;
           cursor: pointer;
         }
 
@@ -1143,11 +1371,12 @@
 
         button:disabled {
           opacity: .5;
+          cursor: not-allowed;
         }
 
         .status {
           white-space: pre-wrap;
-          max-height: 150px;
+          max-height: 170px;
           overflow: auto;
           background: #f2f5fa;
           border-radius: 8px;
@@ -1166,16 +1395,32 @@
 
       <section class="panel open" id="panel">
         <h3>Aula AI multimedia</h3>
+
         <p id="account">Asistente académico</p>
 
         <div id="login">
-          <input id="email" type="email" placeholder="Correo de Aula AI">
-          <input id="password" type="password" placeholder="Contraseña">
-          <button class="action" id="loginBtn">Iniciar sesión</button>
+          <input
+            id="email"
+            type="email"
+            placeholder="Correo de Aula AI"
+          >
+
+          <input
+            id="password"
+            type="password"
+            placeholder="Contraseña"
+          >
+
+          <button class="action" id="loginBtn">
+            Iniciar sesión
+          </button>
         </div>
 
         <div id="tools" style="display:none">
-          <label class="small">Máximo de preguntas</label>
+
+          <label class="small">
+            Máximo de preguntas por ejecución
+          </label>
 
           <select id="max">
             <option>1</option>
@@ -1184,14 +1429,14 @@
             <option>10</option>
           </select>
 
-          <label class="small">
+          <p class="small">
             <input id="auto" type="checkbox" checked>
             Modo automático: avanzar cuando sea seguro
-          </label>
+          </p>
 
           <p class="small">
             <input id="audio" type="checkbox" checked>
-            Capturar audio de reproductores activos (12 segundos)
+            Reproducir y escuchar audio automáticamente
           </p>
 
           <button class="action" id="run">
@@ -1212,8 +1457,8 @@
         </div>
 
         <p class="small">
-          Para ejercicios de audio, pulsa Play antes de analizar.
-          No se pulsa Entregar ni Enviar.
+          Aula AI intenta reproducir el audio y escucharlo.
+          No pulsa Entregar ni Enviar.
         </p>
       </section>
 
@@ -1227,16 +1472,19 @@
 
     const el = id => shadow.getElementById(id);
 
-    setPanelStatus = text => {
-      el("status").textContent = text;
+    setPanelStatus = message => {
+      el("status").textContent = message;
     };
 
     async function refreshPanel() {
       const token = await GM_getValue(TOKEN_KEY, "");
       const email = await GM_getValue(EMAIL_KEY, "");
 
-      el("login").style.display = token ? "none" : "block";
-      el("tools").style.display = token ? "block" : "none";
+      el("login").style.display =
+        token ? "none" : "block";
+
+      el("tools").style.display =
+        token ? "block" : "none";
 
       el("account").textContent = token
         ? `Sesión: ${email}`
@@ -1249,6 +1497,7 @@
 
     el("loginBtn").addEventListener("click", async () => {
       el("loginBtn").disabled = true;
+
       setPanelStatus("Conectando con Aula AI…");
 
       try {
@@ -1258,6 +1507,7 @@
         );
 
         el("password").value = "";
+
         setPanelStatus("Sesión iniciada correctamente.");
 
         await refreshPanel();
@@ -1278,9 +1528,13 @@
       await GM_setValue(EMAIL_KEY, "");
 
       await refreshPanel();
+
       setPanelStatus("Sesión cerrada.");
     });
 
+    // IMPORTANTE:
+    // La captura de audio comienza aquí, dentro del
+    // clic real del usuario, antes de cualquier await.
     el("run").addEventListener("click", () => {
       activeRunId =
         Date.now().toString(36) +
@@ -1290,9 +1544,21 @@
 
       el("run").disabled = true;
 
+      const captureAudio = el("audio").checked;
+
       setPanelStatus(
-        "Analizando texto, imágenes, vídeo y audio accesibles…"
+        captureAudio
+          ? "Aula AI está buscando el reproductor e intentando iniciar Play automáticamente…"
+          : "Aula AI está analizando la actividad…"
       );
+
+      // Esta llamada inicia play() inmediatamente.
+      const audioPromise = captureAudio
+        ? startAudioCaptureFromClick()
+        : Promise.resolve({
+            audioBase64: "",
+            note: "Captura de audio desactivada."
+          });
 
       const command = {
         source: "AULA_AI_COMMAND",
@@ -1300,20 +1566,23 @@
         runId: activeRunId,
         maxQuestions: Number(el("max").value),
         automatic: el("auto").checked,
-        captureAudio: el("audio").checked
+        captureAudio
       };
 
-      // Analizar el marco principal.
+      // Analizar el documento principal.
       analyzeFrame(
         command.runId,
         command.maxQuestions,
         command.automatic,
-        command.captureAudio
+        captureAudio,
+        audioPromise
       );
 
-      // Enviar la orden a todos los marcos internos.
+      // Enviar orden a marcos internos.
       sendToChildFrames(command);
 
+      // Liberar el botón después de iniciar el proceso.
+      // El análisis continúa aunque el popup esté cerrado.
       setTimeout(() => {
         el("run").disabled = false;
       }, 12000);
@@ -1334,13 +1603,15 @@
   }
 
   // ==========================================
-  // MENSAJES ENTRE DOCUMENTO Y MARCOS INTERNOS
+  // COMUNICACIÓN CON MARCOS INTERNOS
   // ==========================================
 
   window.addEventListener("message", event => {
     const data = event.data;
 
-    if (!data || typeof data !== "object") return;
+    if (!data || typeof data !== "object") {
+      return;
+    }
 
     if (
       data.source === "AULA_AI_COMMAND" &&
@@ -1350,11 +1621,21 @@
       sendToChildFrames(data);
 
       if (data.type === "RUN") {
+        // También se intenta activar el reproductor
+        // en el marco donde está ejecutándose el script.
+        const audioPromise = data.captureAudio
+          ? startAudioCaptureFromClick()
+          : Promise.resolve({
+              audioBase64: "",
+              note: "Captura desactivada."
+            });
+
         analyzeFrame(
           data.runId,
           data.maxQuestions,
           data.automatic,
-          data.captureAudio
+          data.captureAudio,
+          audioPromise
         );
       }
 
