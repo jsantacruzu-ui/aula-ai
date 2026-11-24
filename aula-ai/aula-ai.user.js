@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.19
+// @version      0.3.20
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -483,6 +483,12 @@
       '[class*="select-menu" i] [class*="option" i]',
       '[aria-haspopup="listbox"]',
       '[aria-haspopup="menu"]',
+      '[aria-haspopup="true"]',
+      // Cambridge y otras plataformas dibujan los desplegables como DIV.
+      // Incluir el cuadro para poder abrirlo y luego leer sus opciones.
+      '[class*="dropdown" i]',
+      '[class*="select" i]',
+      '[class*="combobox" i]',
       '[data-value]',
       'li[tabindex]',
       "[aria-checked]",
@@ -548,6 +554,17 @@
         }
 
         const customDropdown = isCustomDropdown(element);
+
+        // No indexar cada contenedor visual de la lista como si fuera
+        // una respuesta. Solo se conserva el cuadro que abre el menú.
+        if (
+          customDropdown &&
+          isDropdownOption(element)
+        ) {
+          indexedControls.delete(index);
+          controls.pop();
+          continue;
+        }
 
         const options = tag === "select"
           ? [...element.options]
