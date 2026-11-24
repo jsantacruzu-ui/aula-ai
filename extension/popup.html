@@ -1,0 +1,74 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aula AI</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="mark">A</div>
+      <div>
+        <b>Aula AI</b>
+        <small>Asistente de tareas</small>
+      </div>
+      <span id="state" class="state">Listo</span>
+    </header>
+
+    <section id="login">
+      <h1>Inicia sesión</h1>
+      <p>Usa la misma cuenta de Aula AI.</p>
+
+      <label>Correo
+        <input id="email" type="email" autocomplete="username" placeholder="Tu correo">
+      </label>
+
+      <label>Contraseña
+        <input id="password" type="password" autocomplete="current-password" placeholder="Tu contraseña">
+      </label>
+
+      <button id="loginBtn" class="primary">Ingresar</button>
+      <p id="loginMsg" class="msg"></p>
+    </section>
+
+    <section id="main" hidden>
+      <p id="account" class="account"></p>
+
+      <div class="switchrow">
+        <div>
+          <b>Modo automático</b>
+          <small>Responde y avanza cuando detecte otra pregunta.</small>
+        </div>
+        <input id="auto" type="checkbox" checked>
+      </div>
+
+      <label class="limit">Máximo de preguntas por ejecución
+        <select id="max">
+          <option>5</option>
+          <option selected>10</option>
+          <option>15</option>
+          <option>20</option>
+        </select>
+      </label>
+
+      <button id="run" class="primary">Analizar y responder</button>
+      <button id="stop" class="secondary" disabled>Detener</button>
+
+      <div id="progress" class="progress">
+        Abre la página de tu actividad y pulsa Analizar.
+      </div>
+
+      <button id="logout" class="link">Cerrar sesión</button>
+    </section>
+
+    <footer>
+      Revisa la actividad antes de entregarla. Aula AI no pulsa el botón final de envío.
+    </footer>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
