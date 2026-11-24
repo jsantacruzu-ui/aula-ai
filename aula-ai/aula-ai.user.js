@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.17
+// @version      0.3.18
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -314,6 +314,26 @@
     return !!interactive;
   }
 
+  function isDropdownOption(element) {
+    if (!element) return false;
+
+    if (element.matches(
+      '[role="option"],[role="menuitem"],[data-value],li[tabindex]'
+    )) return true;
+
+    const classes = String(element.className || "").toLowerCase();
+    if (!/(option|choice)/.test(classes)) return false;
+
+    let parent = element.parentElement;
+    for (let level = 0; level < 6 && parent; level++, parent = parent.parentElement) {
+      if (parent.matches(
+        '[role="listbox"],[role="menu"],[class*="dropdown-menu" i],[class*="select-menu" i]'
+      )) return true;
+    }
+
+    return false;
+  }
+
   function dropdownStableKey(element) {
     const text = (
       element.getAttribute("aria-label") ||
@@ -364,11 +384,11 @@
 
     for (const container of containers) {
       const candidates = container.matches(
-        '[role="option"],[role="menuitem"],option,li,[data-value],button'
+        '[role="option"],[role="menuitem"],option,li,[data-value],button,[class*="option" i],[class*="choice" i]'
       )
         ? [container]
         : [...container.querySelectorAll(
-            '[role="option"],[role="menuitem"],option,li,[data-value],button'
+            '[role="option"],[role="menuitem"],option,li,[data-value],button,[class*="option" i],[class*="choice" i]'
           )];
 
       for (const option of candidates) {
@@ -456,6 +476,11 @@
       '[role="menu"] li',
       '[class*="dropdown-menu" i] li',
       '[class*="select-menu" i] li',
+      '[role="listbox"] [class*="option" i]',
+      '[role="listbox"] [class*="choice" i]',
+      '[role="menu"] [class*="option" i]',
+      '[class*="dropdown-menu" i] [class*="option" i]',
+      '[class*="select-menu" i] [class*="option" i]',
       '[aria-haspopup="listbox"]',
       '[aria-haspopup="menu"]',
       '[data-value]',
@@ -1707,8 +1732,8 @@
           }
 
           const candidates = containers.flatMap(container => [
-            ...(container.matches('[role="option"],[role="menuitem"],option,li,[data-value],button') ? [container] : []),
-            ...container.querySelectorAll('[role="option"],[role="menuitem"],option,li,[data-value],button')
+            ...(container.matches('[role="option"],[role="menuitem"],option,li,[data-value],button,[class*="option" i],[class*="choice" i]') ? [container] : []),
+            ...container.querySelectorAll('[role="option"],[role="menuitem"],option,li,[data-value],button,[class*="option" i],[class*="choice" i]')
           ]);
 
           const optionElement = candidates.find(candidate =>
@@ -1757,7 +1782,7 @@
 
         if (
           element.matches(
-            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
+            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[role="listbox"] [class*="option" i],[role="listbox"] [class*="choice" i],[role="menu"] [class*="option" i],[class*="dropdown-menu" i] [class*="option" i],[class*="select-menu" i] [class*="option" i],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
           )
         ) {
           element.click();
