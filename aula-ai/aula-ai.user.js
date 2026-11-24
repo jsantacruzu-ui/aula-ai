@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.10
+// @version      0.3.11
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1078,6 +1078,14 @@
   // CAPTURAR IMÁGENES Y FOTOGRAMAS
   // ==========================================
 
+  function isValidImageDataUrl(dataUrl) {
+    return (
+      typeof dataUrl === "string" &&
+      dataUrl.length <= MAX_IMAGE_SIZE &&
+      /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(dataUrl)
+    );
+  }
+
   function imageToDataUrl(source, description) {
     try {
       const width =
@@ -1158,7 +1166,8 @@
         );
       }
 
-      if (dataUrl.length > MAX_IMAGE_SIZE) {
+      // No enviar nunca "data:," ni un MIME inesperado al servidor.
+      if (!isValidImageDataUrl(dataUrl)) {
         return null;
       }
 
@@ -1273,7 +1282,7 @@
   // descargamos el recurso con el permiso de Tampermonkey.
   async function captureImageElement(image, description) {
     const direct = imageToDataUrl(image, description);
-    if (direct) return direct;
+    if (direct && isValidImageDataUrl(direct.dataUrl)) return direct;
 
     const url = image.currentSrc || image.src || "";
     if (!/^https?:\/\//i.test(url)) return null;
@@ -1357,11 +1366,11 @@
 
       const result = await captureImageElement(image, description);
 
-      if (result) {
+      if (result && isValidImageDataUrl(result.dataUrl)) {
         images.push(result);
       } else {
         skipped.push(
-          `No se pudo capturar: ${image.alt || "sin descripción"} (${image.naturalWidth}x${image.naturalHeight})`
+          `No se pudo capturar en formato válido: ${image.alt || "sin descripción"} (${image.naturalWidth}x${image.naturalHeight})`
         );
       }
     }
@@ -1374,8 +1383,8 @@
         "Gráfico o actividad dibujada en canvas."
       );
 
-      if (result) images.push(result);
-      else skipped.push("Un gráfico no permitió leer sus píxeles.");
+      if (result && isValidImageDataUrl(result.dataUrl)) images.push(result);
+      else skipped.push("Se omitió un gráfico porque no se pudo convertir a una imagen válida.");
     }
 
     for (const video of allElements("video")) {
@@ -1390,8 +1399,8 @@
         `Fotograma de vídeo en el segundo ${Math.round(video.currentTime)}.`
       );
 
-      if (result) images.push(result);
-      else skipped.push("Un fotograma de vídeo no permitió captura.");
+      if (result && isValidImageDataUrl(result.dataUrl)) images.push(result);
+      else skipped.push("Se omitió un fotograma porque no se pudo convertir a una imagen válida.");
     }
 
     return {
@@ -1621,6 +1630,18 @@
         // Capturar texto e imágenes.
         const visual = await captureImages();
 
+        // Última barrera: una imagen incorrecta nunca debe cancelar
+        // el análisis completo. Solo se envían JPEG/PNG/WebP base64 válidos.
+        const countBeforeValidation = visual.images.length;
+        visual.images = visual.images.filter(item =>
+          isValidImageDataUrl(item?.dataUrl)
+        );
+        if (visual.images.length < countBeforeValidation) {
+          visual.skipped.push(
+            `Se omitieron ${countBeforeValidation - visual.images.length} imagen(es) con formato no compatible.`
+          );
+        }
+
         // Esperar el audio que comenzó al pulsar Analizar.
         let audio = {
           audioBase64: "",
@@ -1741,12 +1762,12 @@
   // ==========================================
 
   function createPanel() {
-    if (
-      !TOP ||
-      document.getElementById("aula-ai-userscript")
-    ) {
-      return;
-    }
+    if (!TOP) return;
+
+    // Retirar el botón flotante legado de la extensión antigua si existe.
+    document.getElementById("aula-ai-floating")?.remove();
+
+    if (document.getElementById("aula-ai-userscript")) return;
 
     const host = document.createElement("div");
 
