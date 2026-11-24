@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.1
+// @version      0.3.2
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -39,6 +39,10 @@
   const MAX_IMAGE_SIZE = 1100000;
   const MAX_AUDIO_MS = 90000;
   const MAX_AUDIO_BYTES = 1800000;
+
+  // Conserva referencias reales a controles, incluso si están dentro
+  // de un iframe accesible. querySelector del documento principal no basta.
+  const indexedControls = new Map();
 
   const TOP = window.top === window.self;
 
@@ -203,6 +207,9 @@
     }
   }
 
+  // Recorre el documento actual, sus Shadow DOM abiertos y los
+  // iframes del mismo origen. Así se puede leer la actividad de Cambridge
+  // aunque esté incrustada dentro de otro marco.
   function getRoots() {
     const roots = [document];
     const visited = new Set();
@@ -211,14 +218,22 @@
       const root = roots.shift();
 
       if (!root || visited.has(root)) continue;
-
       visited.add(root);
 
       if (!root.querySelectorAll) continue;
 
       for (const element of root.querySelectorAll("*")) {
-        if (element.shadowRoot) {
-          roots.push(element.shadowRoot);
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+
+        if (element.tagName === "IFRAME" || element.tagName === "FRAME") {
+          try {
+            const childDocument = element.contentDocument;
+            if (childDocument && !visited.has(childDocument)) {
+              roots.push(childDocument);
+            }
+          } catch {
+            // Los marcos de otro origen no se pueden inspeccionar desde aquí.
+          }
         }
       }
     }
@@ -283,6 +298,7 @@
           "data-aula-ai-index",
           String(index)
         );
+        indexedControls.set(index, element);
 
         const tag = element.tagName.toLowerCase();
 
@@ -945,8 +961,8 @@
     const details = [];
 
     for (const action of actions || []) {
-      const element = document.querySelector(
-        `[data-aula-ai-index="${Number(action.control_index)}"]`
+      const element = indexedControls.get(
+        Number(action.control_index)
       );
 
       if (!element || element.disabled) continue;
