@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.7
+// @version      0.3.8
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -850,35 +850,78 @@
     const media = findMedia();
     if (media) return startRecording(media);
 
-    // Cambridge One administra el audio con Sound/Howler.
-    // El MP3 queda registrado en los recursos del marco aunque
-    // no exista una etiqueta <audio> visible.
+    // Cambridge One usa un reproductor propio dentro de un iframe.
+    // El botón .play es un conmutador: el segundo clic lo PAUSA.
+    // Por eso, cuando encontramos este reproductor, nunca volvemos
+    // a pulsar el botón desde la búsqueda genérica.
     const players = allElements("figure.audio.v_a_media");
     const player = players.find(isVisible) || players[0];
 
     if (player) {
       let audioUrl = findCambridgeAudioUrl(player);
+      let playWasClicked = false;
 
       if (!audioUrl) {
-        player.querySelector("button.play")?.click();
-        for (let attempt = 0; attempt < 15 && !audioUrl; attempt++) {
+        const playButton = player.querySelector("button.play");
+
+        if (playButton && isVisible(playButton)) {
+          playButton.click();
+          playWasClicked = true;
+        }
+
+        // Después de un único clic, esperamos el recurso MP3 o que
+        // Cambridge cree un elemento de audio accesible.
+        for (let attempt = 0; attempt < 25; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 200));
+
+          const createdMedia = findMedia();
+          if (createdMedia) {
+            return startRecording(createdMedia);
+          }
+
           audioUrl = findCambridgeAudioUrl(player);
+          if (audioUrl) break;
         }
       }
 
-      if (audioUrl) return downloadCambridgeAudio(audioUrl);
+      if (audioUrl) {
+        const downloaded = await downloadCambridgeAudio(audioUrl);
+        if (downloaded.audioBase64) return downloaded;
+
+        // La descarga puede estar bloqueada aunque el reproductor
+        // haya empezado. No hacemos otro clic para no detenerlo.
+        return {
+          audioBase64: "",
+          note: downloaded.note +
+            " El reproductor ya recibió un único clic de Play; no se volvió a pulsar para evitar pausarlo."
+        };
+      }
+
+      const createdMedia = findMedia();
+      if (createdMedia) return startRecording(createdMedia);
+
+      return {
+        audioBase64: "",
+        note: playWasClicked
+          ? "Pulsé Play una sola vez en Cambridge y dejé el audio reproduciéndose. El sitio no expuso un archivo de audio ni una pista capturable para transcribirlo."
+          : "Encontré el reproductor de Cambridge, pero no pude identificar un archivo de audio accesible. No pulsé de nuevo para evitar detener una reproducción que ya estuviera activa."
+      };
     }
 
+    // Para reproductores distintos al de Cambridge, se permite un
+    // único clic en el control Play detectado.
     const playButton = findPlayButton();
-    if (playButton) playButton.click();
 
-    const foundMedia = await waitForMedia();
-    if (foundMedia) return startRecording(foundMedia);
+    if (playButton) {
+      playButton.click();
+
+      const foundMedia = await waitForMedia();
+      if (foundMedia) return startRecording(foundMedia);
+    }
 
     return {
       audioBase64: "",
-      note: "No encontré un archivo de audio accesible. El sitio puede usar un reproductor externo o protegido."
+      note: "No encontré un reproductor de audio capturable. Puede ser externo o estar protegido por el sitio."
     };
   }
 
