@@ -2,7 +2,11 @@
 const AULA_MARK = "data-aula-ai";
 
 function addOverlay() {
-  if (document.getElementById("aula-ai-floating")) return;
+  // Si el userscript principal ya creó su panel, no mostrar el botón legado.
+  if (
+    document.getElementById("aula-ai-userscript") ||
+    document.getElementById("aula-ai-floating")
+  ) return;
 
   const host = document.createElement("div");
   host.id = "aula-ai-floating";
