@@ -2085,7 +2085,7 @@
           return;
         }
 
-        if (!clickNext()) {
+        if (!(await clickNext())) {
           if (submitOnFinish) {
             const submittedLabel = clickSubmitAnswers();
 
