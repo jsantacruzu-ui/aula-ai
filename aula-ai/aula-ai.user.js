@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.25
+// @version      0.3.26
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -467,6 +467,15 @@
       "textarea",
       "select",
       '[contenteditable="true"]',
+      '[draggable="true"]',
+      '[data-draggable="true"]',
+      '[data-testid*="word" i]',
+      '[data-testid*="token" i]',
+      '[class*="word" i]',
+      '[class*="token" i]',
+      '[class*="answer-option" i]',
+      '[class*="word-option" i]',
+      '[class*="choice" i]',
       '[role="radio"]',
       '[role="checkbox"]',
       '[role="combobox"]',
@@ -489,6 +498,13 @@
       '[class*="dropdown" i]',
       '[class*="select" i]',
       '[class*="combobox" i]',
+      '[data-drop-target="true"]',
+      '[data-testid*="blank" i]',
+      '[data-testid*="gap" i]',
+      '[class*="drop-target" i]',
+      '[class*="answer-slot" i]',
+      '[class*="blank" i]',
+      '[class*="gap" i]',
       '[data-value]',
       'li[tabindex]',
       "[aria-checked]",
@@ -1862,7 +1878,7 @@
 
         if (
           element.matches(
-            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[role="listbox"] [class*="option" i],[role="listbox"] [class*="choice" i],[role="menu"] [class*="option" i],[class*="dropdown-menu" i] [class*="option" i],[class*="select-menu" i] [class*="option" i],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label'
+            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[role="listbox"] [class*="option" i],[role="listbox"] [class*="choice" i],[role="menu"] [class*="option" i],[class*="dropdown-menu" i] [class*="option" i],[class*="select-menu" i] [class*="option" i],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label,button,[role="button"],[draggable="true"],[data-draggable="true"],[data-testid*="word" i],[data-testid*="token" i],[class*="word" i],[class*="token" i],[class*="word-option" i],[class*="answer-option" i],[class*="choice" i]'
           )
         ) {
           element.click();
