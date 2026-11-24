@@ -616,9 +616,9 @@
         return rb.width * rb.height - ra.width * ra.height;
       });
 
-    let imageNumber = 0;
     for (const image of clickableImages) {
-      if (imageNumber >= 3) break;
+      const imageNumber = clickableImages.indexOf(image) + 1;
+      if (imageNumber > 3) break;
 
       let target = image.closest('button,[role="button"],a,[tabindex]');
       if (!target) {
@@ -638,7 +638,6 @@
       const index = controls.length;
       indexedControls.set(index, target);
       target.setAttribute("data-aula-ai-index", String(index));
-      imageNumber++;
 
       controls.push({
         control_index: index,
