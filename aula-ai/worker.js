@@ -448,10 +448,12 @@ Reglas:
   - Si un control type "select" no contiene options, no inventes la respuesta: indica en stop_reason que faltan las opciones de ese menú.
   - No confundas el menú de opciones abierto con otro espacio; cada acción debe apuntar al control_index del desplegable correspondiente, nunca al índice de una opción de menú si es un select nativo.
 - Para un select nativo, usa select y value debe coincidir exactamente con el texto o value de una opción.
-- Para un control cuyo campo dropdown sea true, trata el control como un cuadro desplegable personalizado:
-  - Si expanded no es "true" y aún no hay opciones visibles, devuelve click sobre ESE control para abrir la lista; no inventes la respuesta todavía.
-  - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
-  - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
+- Para un control cuyo campo dropdown sea true (combobox personalizado de Cambridge), trátalo como un espacio de respuesta independiente:
+  - Si el cuadro está cerrado y no hay opciones visibles, devuelve click sobre el control_index de ESE cuadro para abrir su menú.
+  - Cuando el menú esté abierto, compara sus opciones visibles con la gramática y el contexto de la oración. Selecciona la opción correcta haciendo click sobre el control_index exacto de la opción visible; si la estructura de options del propio cuadro contiene las opciones, puedes devolver select sobre el control del cuadro con el texto exacto.
+  - En una conversación con dos o más cuadros, resuelve TODOS los espacios, uno por uno. No consideres terminada la tarea después del primer desplegable.
+  - No confundas el menú de un cuadro con el de otro; nunca selecciones una opción perteneciente a un menú distinto.
+  - No devuelvas click sobre el propio cuadro cuando sus opciones ya están abiertas y visibles.
 - Para radios, casillas y opciones interactivas usa click.
 - En ejercicios de completar oraciones con un banco de palabras, identifica las palabras disponibles y cada espacio vacío.
 - Cuando detectes controles Cambridge con clases gap_match_drag y gap_match_gap_view, NO uses action "drag". El usuario confirma que en esta actividad basta hacer un clic en la palabra del banco para que Cambridge la coloque en el espacio activo.
