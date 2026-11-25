@@ -391,6 +391,10 @@ Devuelve SOLO JSON válido con esta estructura:
 Reglas:
 - Resuelve los ejercicios visibles con la información disponible.
 - Para campos de texto usa fill.
+- Identifica los campos que se pueden escribir por type "text", "search", "email", "number", "tel", "url", "textarea", "textbox" o "contenteditable". No confundas un campo de texto con un botón o una zona de arrastre.
+- El control de destino debe ser exactamente el control_index de la caja de escritura; consulta label, placeholder, nearby_text y type para emparejarlo con la oración correspondiente.
+- Si el control tiene nearby_text, úsalo para comprobar que esa caja pertenece a la oración que estás resolviendo. En actividades de imagen + oración, devuelve fill sobre el campo de esa oración, no sobre la imagen ni sobre un contenedor decorativo.
+- Si hay un solo campo de escritura visible y una sola oración incompleta, utiliza ese campo para la respuesta. No dejes actions vacío solamente porque el campo no tenga placeholder o label.
 - NUEVO TIPO DE ACTIVIDAD: imagen + oración con espacio para escribir.
   - Analiza conjuntamente la imagen real enviada y el texto de la oración; no resuelvas usando solo una de las dos fuentes.
   - Lee la oración completa antes y después del espacio vacío para identificar qué tipo de palabra falta (sustantivo, verbo, adjetivo, número, etc.).
