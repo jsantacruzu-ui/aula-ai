@@ -375,6 +375,25 @@ async function handleSolve(body, env, session) {
       transcript
     ].filter(Boolean).join("\n\n").slice(0, 12000);
   }
+ 
+  // Un ejercicio explícitamente basado en listening no debe resolverse
+  // a ciegas. Detener antes de llamar al modelo si no hay transcripción.
+  const isListeningChoiceTask =
+    /listen[\\s\\S]{0,120}choose\\s+the\\s+correct\\s+answers?/i.test(pageText);
+
+  if (isListeningChoiceTask && !audioText.trim()) {
+    return json({
+      actions: [],
+      summary: "Se detectó una pregunta de listening, pero no se recibió una transcripción del audio.",
+      stop_reason: "No se marcaron casillas para evitar adivinar. Comprueba que el audio se haya reproducido y capturado correctamente.",
+      model: MODEL,
+      precisionReview: "not-run",
+      media: {
+        images: images.length,
+        audioTranscribed: false
+      }
+    });
+  }
 
   if (
     !pageText.trim() &&
@@ -456,6 +475,7 @@ Reglas:
   - No devuelvas click sobre el propio cuadro cuando sus opciones ya están abiertas y visibles.
 - Para radios, casillas y opciones interactivas usa click.
 - NUEVO TIPO: selección múltiple mediante casillas (checkbox).
+  - La instrucción "Listen and choose the correct answers" (answers en plural) indica una actividad de selección múltiple: evalúa cada opción y marca TODAS las que coincidan con el audio. No presupongas que solo hay una ni que deben marcarse todas.
   - Lee el enunciado completo y todas las opciones visibles. Si hay audio, utiliza también la transcripción.
   - Si la consigna pide varias respuestas (por ejemplo, "Choose all that apply", "Select all correct answers", "Which statements are true?" o "Marca todas las correctas"), evalúa cada opción por separado y devuelve una acción click por cada casilla correcta.
   - No marques opciones incorrectas ni opciones que solo parezcan relacionadas. Si no puedes confirmar una opción, déjala sin marcar.
@@ -552,7 +572,7 @@ ${JSON.stringify(controls)}
   if (body.precision === "high") {
     try {
       const reviewRaw = await runModel(env, [
-        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
+        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Si el enunciado dice 'Listen and choose the correct answers' (plural), evalúa cada casilla y devuelve un clic por cada respuesta correcta según el audio; no asumas que solo hay una. No pulses casillas que ya estén marcadas. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
         { role:"user", content:[...content,{type:"text",text:"\\nPropuesta inicial (puede contener errores):\\n"+JSON.stringify(parsed)+"\\nResuelve independientemente y devuelve las acciones finales corregidas."}] }
       ],2200);
       const reviewed=parseFirstJsonObject(reviewRaw);
