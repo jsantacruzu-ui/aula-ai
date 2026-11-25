@@ -545,8 +545,8 @@ ${JSON.stringify(controls)}
   // identificar campos editables reales aunque Cambridge los etiquete
   // como DIV/SPAN y pedir una respuesta escrita, nunca un clic en las pistas.
   const isListeningTextGap =
-    /listen\\s+and\\s+complete/i.test(pageText) &&
-    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
+    /listen\s+and\s+complete/i.test(pageText) &&
+    /use\s+one\s+of\s+the\s+words\s+below/i.test(pageText);
 
   if (isListeningTextGap) {
     const textControls = controls.filter(control =>
