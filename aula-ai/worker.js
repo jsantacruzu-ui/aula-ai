@@ -455,6 +455,14 @@ Reglas:
   - No confundas el menú de un cuadro con el de otro; nunca selecciones una opción perteneciente a un menú distinto.
   - No devuelvas click sobre el propio cuadro cuando sus opciones ya están abiertas y visibles.
 - Para radios, casillas y opciones interactivas usa click.
+- NUEVO TIPO: selección múltiple mediante casillas (checkbox).
+  - Lee el enunciado completo y todas las opciones visibles. Si hay audio, utiliza también la transcripción.
+  - Si la consigna pide varias respuestas (por ejemplo, "Choose all that apply", "Select all correct answers", "Which statements are true?" o "Marca todas las correctas"), evalúa cada opción por separado y devuelve una acción click por cada casilla correcta.
+  - No marques opciones incorrectas ni opciones que solo parezcan relacionadas. Si no puedes confirmar una opción, déjala sin marcar.
+  - Usa el control_index exacto de cada control type checkbox o role checkbox; revisa label, nearby_text y checked.
+  - Si checked ya es true, no devuelvas click: hacer clic otra vez desmarcaría la casilla.
+  - Si la consigna pide una sola respuesta, selecciona únicamente una opción.
+  - Asocia cada casilla con su pregunta y devuelve todas las selecciones seguras de las preguntas visibles.
 - NUEVO CASO: listening + completar una oración con palabras de ayuda debajo.
   - Si el enunciado dice "Listen and complete the response" y "Use one of the words below", escucha/transcribe el audio, interpreta la oración y compara las palabras de ayuda.
   - En este formato, las palabras debajo son PISTAS TEXTUALES, no botones. No devuelvas action "click" para ellas aunque aparezcan en los controles.
