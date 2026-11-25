@@ -593,6 +593,13 @@
           continue;
         }
 
+        // Si el input checkbox tiene una etiqueta visible asociada, usar
+        // esa etiqueta como único control para evitar índices duplicados.
+        if (element.matches('input[type="checkbox"]')) {
+          const associatedLabel = element.labels?.[0] || element.closest("label");
+          if (associatedLabel && isVisible(associatedLabel)) continue;
+        }
+
         seen.add(element);
 
         const index = controls.length;
@@ -636,6 +643,14 @@
         const view = element.ownerDocument?.defaultView || window;
         const pointerClickable = view.getComputedStyle(element).cursor === "pointer";
         const className = String(element.className || "");
+        const checkboxStateElement =
+          element.matches('input[type="checkbox"],[role="checkbox"]')
+            ? element
+            : element.querySelector?.('input[type="checkbox"],[role="checkbox"]') || null;
+        const isCheckboxControl =
+          !!checkboxStateElement ||
+          element.getAttribute("role") === "checkbox" ||
+          (tag === "label" && !!element.querySelector('input[type="checkbox"]'));
         const cambridgeDraggable =
           element.classList?.contains("gap_match_drag") &&
           element.classList?.contains("drag_element");
@@ -685,6 +700,19 @@
               break;
             }
           }
+        } else if (isCheckboxControl) {
+          let ancestor = element.parentElement;
+          for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+            const candidateText = String(ancestor.innerText || ancestor.textContent || "")
+              .replace(/\\s+/g, " ").trim();
+            const checkboxCount = ancestor.querySelectorAll(
+              'input[type="checkbox"],[role="checkbox"]'
+            ).length;
+            if (candidateText.length >= 12 && candidateText.length <= 900 && checkboxCount >= 2) {
+              nearbyText = candidateText;
+              break;
+            }
+          }
         }
 
         controls.push({
@@ -695,6 +723,8 @@
               ? element.type || "text"
               : element.getAttribute("role") === "checkbox" ||
                 (tag === "label" && !!element.querySelector('input[type="checkbox"]'))
+              ? "checkbox"
+              : isCheckboxControl
               ? "checkbox"
               : tag === "textarea"
               ? "textarea"
@@ -738,9 +768,13 @@
           options,
           disabled: !!element.disabled,
           checked:
-            element.getAttribute("aria-checked") === "true" ||
-            element.getAttribute("aria-selected") === "true" ||
-            !!element.checked
+            checkboxStateElement
+              ? checkboxStateElement.checked === true ||
+                checkboxStateElement.getAttribute("aria-checked") === "true" ||
+                checkboxStateElement.getAttribute("aria-selected") === "true"
+              : element.getAttribute("aria-checked") === "true" ||
+                element.getAttribute("aria-selected") === "true" ||
+                !!element.checked
         });
       }
     }
