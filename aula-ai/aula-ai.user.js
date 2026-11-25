@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.28
+// @version      0.3.29
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -608,6 +608,23 @@
         const customDropdown = isCustomDropdown(element);
         const view = element.ownerDocument?.defaultView || window;
         const pointerClickable = view.getComputedStyle(element).cursor === "pointer";
+        const className = String(element.className || "");
+        const cambridgeDraggable =
+          element.classList?.contains("gap_match_drag") &&
+          element.classList?.contains("drag_element");
+        const cambridgeDropzone =
+          element.classList?.contains("gap_match_gap_view") &&
+          element.classList?.contains("drop_area");
+
+        if (cambridgeDropzone) {
+          const sentence = element.closest("p") ||
+            element.closest(".contentblock") ||
+            element.parentElement?.parentElement;
+          const sentenceText = String(
+            sentence?.innerText || sentence?.textContent || ""
+          ).replace(/\\s+/g, " ").trim();
+          if (sentenceText) label = sentenceText;
+        }
 
         const options = tag === "select"
           ? [...element.options]
@@ -632,6 +649,10 @@
               ? "select"
               : customDropdown
               ? "combobox"
+              : cambridgeDraggable
+              ? "draggable"
+              : cambridgeDropzone
+              ? "dropzone"
               : pointerClickable
               ? "clickable"
               : element.getAttribute("role") ||
@@ -643,8 +664,15 @@
 
           dropdown: customDropdown,
           clickable: pointerClickable,
+          cambridgeInteraction: cambridgeDraggable
+            ? "drag-source"
+            : cambridgeDropzone
+            ? "drop-target"
+            : "",
+          className: className.slice(0, 180),
+          modelId: element.getAttribute("data-model-id") || "",
           expanded: element.getAttribute("aria-expanded"),
-          label: String(label).trim().slice(0, 220),
+          label: String(label).trim().slice(0, 300),
           value: element.value || "",
           placeholder:
             element.getAttribute("placeholder") || "",
@@ -1744,6 +1772,7 @@
     const details = [];
     const openedDropdowns = [];
     const skipped = [];
+    const dragChecks = [];
 
     for (const action of actions || []) {
       const element = indexedControls.get(
@@ -1763,7 +1792,85 @@
         action.value ?? ""
       ).trim();
 
-      if (
+      if (action.action === "drag") {
+        const targetIndex = Number(
+          action.target_control_index ?? action.drop_control_index
+        );
+        const dropTarget = indexedControls.get(targetIndex);
+
+        if (!dropTarget) {
+          skipped.push("zona destino " + targetIndex + ": índice no disponible");
+          continue;
+        }
+
+        if (
+          !element.matches(".drag_element.gap_match_drag") ||
+          !dropTarget.matches(".drop_area.gap_match_gap_view")
+        ) {
+          skipped.push("la acción drag requiere una palabra gap_match_drag y un espacio gap_match_gap_view");
+          continue;
+        }
+
+        const sourceRect = element.getBoundingClientRect();
+        const targetRect = dropTarget.getBoundingClientRect();
+        if (
+          sourceRect.width < 2 || sourceRect.height < 2 ||
+          targetRect.width < 2 || targetRect.height < 2
+        ) {
+          skipped.push("la palabra o el espacio destino no están visibles");
+          continue;
+        }
+
+        const doc = element.ownerDocument;
+        const view = doc.defaultView || window;
+        const sx = sourceRect.left + sourceRect.width / 2;
+        const sy = sourceRect.top + sourceRect.height / 2;
+        const tx = targetRect.left + targetRect.width / 2;
+        const ty = targetRect.top + targetRect.height / 2;
+        const word = String(element.innerText || element.textContent || "").trim();
+
+        const mouse = (target, type, x, y, buttons) => {
+          target.dispatchEvent(new view.MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            view,
+            button: 0,
+            buttons,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            detail: 1
+          }));
+        };
+
+        try {
+          element.focus({ preventScroll: true });
+
+          // Cambridge One registra mousedown en la palabra y después
+          // escucha mousemove/mouseup a nivel del documento.
+          mouse(element, "mousedown", sx, sy, 1);
+
+          const mx = sx + (tx - sx) * 0.55;
+          const my = sy + (ty - sy) * 0.55;
+          mouse(doc, "mousemove", mx, my, 1);
+          mouse(doc, "mousemove", tx, ty, 1);
+          mouse(dropTarget, "mousemove", tx, ty, 1);
+          mouse(dropTarget, "mouseup", tx, ty, 0);
+
+          dragChecks.push({
+            source: element,
+            target: dropTarget,
+            word
+          });
+          applied++;
+          details.push("Arrastre enviado: " + word);
+        } catch (error) {
+          skipped.push("no se pudo simular el arrastre de " + word + ": " + (error?.message || "error"));
+        }
+
+      } else if (
         action.action === "fill" &&
         (
           element.matches(
@@ -2019,7 +2126,7 @@
       }
     }
 
-    return { applied, details, openedDropdowns, skipped };
+    return { applied, details, openedDropdowns, skipped, dragChecks };
   }
 
   async function clickNext() {
@@ -2316,6 +2423,27 @@
           result.actions,
           openedDropdownKeys
         );
+
+        if (applied.dragChecks.length) {
+          await new Promise(resolve => setTimeout(resolve, 750));
+
+          for (const check of applied.dragChecks) {
+            const placed = [...check.target.querySelectorAll(".drag_element")]
+              .filter(item => !item.closest(".width-measure"))
+              .some(item =>
+                String(item.innerText || item.textContent || "")
+                  .trim().toLowerCase() === check.word.toLowerCase()
+              );
+
+            if (!placed) {
+              applied.applied = Math.max(0, applied.applied - 1);
+              applied.skipped.push(
+                "Cambridge no confirmó que la palabra \"" + check.word +
+                "\" quedara dentro del espacio destino."
+              );
+            }
+          }
+        }
 
         if (applied.openedDropdowns.length) {
           report(
