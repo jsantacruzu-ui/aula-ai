@@ -310,6 +310,40 @@ async function handleStudy(body, env, session) {
 }
 
 // Resolver actividades que contienen texto, imágenes o audio.
+
+function parseFirstJsonObject(raw) {
+  const source = String(raw || "").replace(/^\uFEFF/, "");
+  for (let start = 0; start < source.length; start++) {
+    if (source[start] !== "{") continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < source.length; index++) {
+      const char = source[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === "{") depth++;
+      else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = source.slice(start, index + 1);
+          try { return JSON.parse(candidate); }
+          catch {
+            try { return JSON.parse(candidate.replace(/,\s*([}\]])/g, "$1")); }
+            catch { break; }
+          }
+        }
+      }
+    }
+  }
+  throw new Error("La IA generó una respuesta estructurada, pero no se pudo interpretar como JSON. Se descartó el texto adicional para evitar ejecutar respuestas incompletas.");
+}
+
 async function handleSolve(body, env, session) {
   const pageText = String(
     body.pageText || ""
@@ -406,7 +440,14 @@ Reglas:
   - No escribas explicaciones dentro del campo: solo la respuesta.
   - Si hay varias casillas de texto, relaciona cada una con su oración cercana y devuelve una acción fill para cada respuesta inequívoca.
   - Si la imagen o la oración no se capturó/leyó con suficiente claridad, no adivines; indica qué pista falta en stop_reason.
-- Para un select nativo, usa select y value debe coincidir con una opción.
+- NUEVO TIPO: completar conversaciones o diálogos mediante VARIOS menús desplegables.
+  - Lee todas las intervenciones de la conversación y conserva el contexto entre las frases (por ejemplo, una pregunta sobre el verano y la respuesta "It'll be busy").
+  - Cada control type "select" es un desplegable HTML nativo independiente. Revisa su lista options y elige la opción exacta más adecuada para ESE espacio.
+  - Devuelve una acción "select" por CADA desplegable que puedas resolver, no solo para el primero. No dejes sin responder los demás espacios de la misma conversación.
+  - Usa gramática y significado conjuntamente: tiempo verbal, concordancia, estructura de la pregunta y respuesta de la otra persona. No elijas una opción solo porque aparece primero.
+  - Si un control type "select" no contiene options, no inventes la respuesta: indica en stop_reason que faltan las opciones de ese menú.
+  - No confundas el menú de opciones abierto con otro espacio; cada acción debe apuntar al control_index del desplegable correspondiente, nunca al índice de una opción de menú si es un select nativo.
+- Para un select nativo, usa select y value debe coincidir exactamente con el texto o value de una opción.
 - Para un control cuyo campo dropdown sea true, trata el control como un cuadro desplegable personalizado:
   - Si expanded no es "true" y aún no hay opciones visibles, devuelve click sobre ESE control para abrir la lista; no inventes la respuesta todavía.
   - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
@@ -486,18 +527,10 @@ ${JSON.stringify(controls)}
     2200
   );
 
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-
-  if (start < 0 || end <= start) {
-    throw new Error(
-      "El modelo no devolvió JSON válido para la extensión."
-    );
+  const parsed = parseFirstJsonObject(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("La IA no devolvió un objeto de respuestas válido.");
   }
-
-  const parsed = JSON.parse(
-    raw.slice(start, end + 1)
-  );
 
   await recordUsage(
     session.auth,
