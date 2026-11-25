@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.37
+// @version      0.3.38
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -37,6 +37,10 @@
   const TOKEN_KEY = "aula_access_token";
   const REFRESH_KEY = "aula_refresh_token";
   const EMAIL_KEY = "aula_email";
+  const PRECISION_KEY = "aula_precision_mode";
+  const VERIFY_KEY = "aula_verify_answers";
+  const ERROR_HISTORY_KEY = "aula_error_history";
+  const DEFAULT_PRECISION = "high";
 
   const MAX_IMAGES = 4;
   const MAX_IMAGE_SIZE = 1100000;
@@ -193,6 +197,18 @@
   }
 
   // ==========================================
+  async function getAulaSettings() {
+    return { precision: await GM_getValue(PRECISION_KEY, DEFAULT_PRECISION), verify: await GM_getValue(VERIFY_KEY, true) };
+  }
+  async function saveAnswerHistory(entry) {
+    try {
+      const old = await GM_getValue(ERROR_HISTORY_KEY, []);
+      const history = Array.isArray(old) ? old : [];
+      history.unshift({ id: Date.now().toString(36), date: new Date().toISOString(), ...entry });
+      await GM_setValue(ERROR_HISTORY_KEY, history.slice(0, 300));
+      return history.length;
+    } catch { return 0; }
+  }
   // ELEMENTOS Y DOCUMENTOS
   // ==========================================
 
@@ -2563,14 +2579,12 @@
           `${audio.audioBase64 ? "Audio capturado." : audio.note}`
         );
 
+        const aulaSettings = await getAulaSettings();
         const requestBody = {
-          title: snapshot.title,
-          pageText: snapshot.pageText,
-          controls: snapshot.controls,
-          images: visual.images,
-
-          audioBase64:
-            audio.audioBase64 || undefined
+          title: snapshot.title, pageText: snapshot.pageText,
+          controls: snapshot.controls, images: visual.images,
+          precision: aulaSettings.precision, verifyAnswers: aulaSettings.verify,
+          audioBase64: audio.audioBase64 || undefined
         };
 
         const result = await request(
@@ -2603,6 +2617,18 @@
           result.actions,
           openedDropdownKeys
         );
+        const answerSummary = result.actions.map(action => {
+          const control = snapshot.controls.find(item => Number(item.control_index) === Number(action.control_index));
+          return { question: action.question || control?.nearby_text || control?.label || "", answer: action.value || control?.label || "" };
+        });
+        await saveAnswerHistory({
+          page: location.hostname, activity: snapshot.title,
+          question: answerSummary.map(item=>item.question).filter(Boolean).join(" | ").slice(0,1200),
+          answers: answerSummary.map(item=>item.answer).filter(Boolean).join(" | ").slice(0,500),
+          applied: applied.applied, skipped: applied.skipped.slice(0,8),
+          outcome: applied.skipped.length ? "needs-review" : "awaiting-check"
+        });
+
 
         if (applied.cambridgeClickChecks.length) {
           await new Promise(resolve => setTimeout(resolve, 700));
@@ -2914,6 +2940,12 @@
             <input id="audio" type="checkbox" checked>
             Reproducir y escuchar audio automáticamente
           </p>
+          <label class="small" for="precision">Precisión de respuestas</label>
+          <select id="precision"><option value="normal">Normal</option><option value="high" selected>Alta (doble comprobación)</option></select>
+          <p class="small"><input id="verifyAnswers" type="checkbox" checked> Verificar que las respuestas queden colocadas</p>
+          <p class="small">Historial de errores activado. Se guarda localmente en este navegador.</p>
+          <button class="action secondary" id="showHistory">Ver historial de respuestas</button>
+          <div class="status" id="historyStatus" style="display:none;max-height:130px"></div>
 
           <p class="small">
             <input id="submit" type="checkbox" checked>
@@ -2970,6 +3002,8 @@
     async function refreshPanel() {
       const token = await GM_getValue(TOKEN_KEY, "");
       const email = await GM_getValue(EMAIL_KEY, "");
+      el("precision").value = await GM_getValue(PRECISION_KEY, DEFAULT_PRECISION);
+      el("verifyAnswers").checked = await GM_getValue(VERIFY_KEY, true);
 
       el("login").style.display =
         token ? "none" : "block";
@@ -3013,6 +3047,20 @@
       }
     });
 
+    el("precision").addEventListener("change", async () => {
+      await GM_setValue(PRECISION_KEY, el("precision").value);
+      setPanelStatus("Nivel de precisión guardado.");
+    });
+    el("verifyAnswers").addEventListener("change", async () => {
+      await GM_setValue(VERIFY_KEY, el("verifyAnswers").checked);
+      setPanelStatus("Verificación de respuestas " + (el("verifyAnswers").checked ? "activada." : "desactivada."));
+    });
+    el("showHistory").addEventListener("click", async () => {
+      const box = el("historyStatus"), history = await GM_getValue(ERROR_HISTORY_KEY, []);
+      box.style.display = "block";
+      box.textContent = !history.length ? "Todavía no hay respuestas guardadas." :
+        history.slice(0,12).map(item => new Date(item.date).toLocaleString()+" · "+item.outcome+" · "+String(item.question||"").slice(0,100)+" · "+String(item.answers||"").slice(0,80)).join("\\n");
+    });
     el("connectAudio").addEventListener("click", async () => {
       if (tabAudioStream) {
         tabAudioStream.getTracks().forEach(track => track.stop());
