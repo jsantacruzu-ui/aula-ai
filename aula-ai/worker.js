@@ -542,18 +542,25 @@ ${JSON.stringify(controls)}
   }
 
   // Listening + oración incompleta con palabras de ayuda:
-  // las palabras debajo son pistas, no botones que deban pulsarse.
+  // identificar campos editables reales aunque Cambridge los etiquete
+  // como DIV/SPAN y pedir una respuesta escrita, nunca un clic en las pistas.
   const isListeningTextGap =
-    /listen\s+and\s+complete/i.test(pageText) &&
-    /use\s+one\s+of\s+the\s+words\s+below/i.test(pageText);
+    /listen\\s+and\\s+complete/i.test(pageText) &&
+    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
 
   if (isListeningTextGap) {
     const textControls = controls.filter(control =>
+      control.editable === true ||
       /^(text|search|email|number|tel|url|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
     );
 
-    if (textControls.length === 1) {
-      const target = textControls[0];
+    const target = textControls.length === 1
+      ? textControls[0]
+      : textControls.find(control =>
+          /listen|complete|response|____|east|trip/i.test(String(control.nearby_text || ""))
+        );
+
+    if (target) {
       const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
       const hasFill = actions.some(action =>
         action.action === "fill" &&
@@ -569,23 +576,86 @@ ${JSON.stringify(controls)}
         const hintControl = hintClick
           ? controls.find(control => Number(control.control_index) === Number(hintClick.control_index))
           : null;
-        const candidate = String(hintClick?.value || hintControl?.label || "").trim();
+        let candidate = String(
+          hintClick?.value ||
+          hintControl?.label ||
+          ""
+        ).trim();
 
-        if (candidate && candidate.length <= 80) {
+        // Si el primer análisis no produjo la palabra, solicitar una
+        // resolución breve usando la transcripción real y las pistas.
+        if (!candidate && audioText) {
+          const hints = controls
+            .filter(control =>
+              control.control_index !== target.control_index &&
+              !control.editable &&
+              String(control.label || "").trim().length > 0 &&
+              String(control.label || "").trim().length <= 50
+            )
+            .map(control => String(control.label).trim())
+            .filter((value, index, list) => list.indexOf(value) === index)
+            .slice(0, 20);
+
+          const answerRaw = await runModel(
+            env,
+            [
+              {
+                role: "system",
+                content: "Eres un asistente de listening de inglés. Resuelve el espacio usando el audio transcrito y la oración. Devuelve únicamente la palabra o frase que debe escribirse, sin explicación, comillas ni Markdown."
+              },
+              {
+                role: "user",
+                content:
+                  "Instrucción: " + pageText.slice(0, 5000) +
+                  "\\nTranscripción del audio: " + audioText +
+                  "\\nPalabras de ayuda visibles: " + hints.join(", ") +
+                  "\\nContexto del campo: " + String(target.nearby_text || target.label || "") +
+                  "\\nEscribe solamente la respuesta exacta."
+              }
+            ],
+            120
+          );
+          candidate = String(answerRaw || "")
+            .trim()
+            .replace(/^["'\s]+|["'\\s.,;:!?]+$/g, "");
+          if (candidate.startsWith("{")) {
+            try {
+              const answerObject = parseFirstJsonObject(candidate);
+              candidate = String(answerObject.answer || answerObject.value || "").trim();
+            } catch {}
+          }
+        }
+
+        if (candidate && candidate.length <= 100) {
           parsed.actions = actions.filter(action =>
-            !(action.action === "click" && Number(action.control_index) === Number(hintClick.control_index))
+            !(action.action === "click" &&
+              controls.some(control =>
+                Number(control.control_index) === Number(action.control_index) &&
+                control.control_index !== target.control_index
+              ))
           );
           parsed.actions.push({
             control_index: target.control_index,
             action: "fill",
             value: candidate,
-            question: "Completar la oración escuchando el audio y usando las palabras de ayuda",
-            explanation: "Las palabras debajo son pistas; la respuesta se escribe en el espacio.",
-            confidence: 0.85
+            question: "Completar la oración escuchando el audio",
+            explanation: "Las palabras inferiores son pistas; la respuesta se escribe en el campo editable.",
+            confidence: 0.9
           });
-          parsed.summary = "Se identificó la palabra de ayuda y se preparó para escribirla en el espacio de la oración.";
+          parsed.summary = "Respuesta identificada a partir del audio y preparada para escribir en el campo.";
+        } else if (!hasFill) {
+          parsed.actions = actions.filter(action => action.action !== "click");
+          parsed.stop_reason = audioText
+            ? "Se detectó el campo editable, pero no se pudo determinar con suficiente seguridad la palabra que debe escribirse."
+            : "Se detectó el ejercicio de audio y el campo editable, pero no llegó una transcripción del audio. Revisa la captura de audio antes de responder.";
+          parsed.summary = "No se escribió una respuesta porque faltó confirmar la palabra correcta.";
         }
       }
+    } else {
+      parsed.actions = (Array.isArray(parsed.actions) ? parsed.actions : [])
+        .filter(action => action.action !== "click");
+      parsed.stop_reason = "Se detectó el ejercicio de listening, pero no se pudo identificar un campo editable único asociado a la oración.";
+      parsed.summary = "No se pulsaron las palabras de ayuda; falta identificar el campo de escritura.";
     }
   }
 
