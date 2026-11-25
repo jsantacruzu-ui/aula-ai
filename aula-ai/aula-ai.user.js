@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.32
+// @version      0.3.33
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -467,6 +467,7 @@
       "textarea",
       "select",
       '[contenteditable="true"]',
+      '[role="textbox"]',
       '[draggable="true"]',
       '[data-draggable="true"]',
       '[data-testid*="word" i]',
@@ -637,6 +638,29 @@
           ? getCustomDropdownOptions(element)
           : [];
 
+        // Añadir contexto de oración a cada campo de escritura. En Cambridge
+        // el input a veces está anidado en varios SPAN/DIV y no tiene label.
+        let nearbyText = "";
+        const isTextEntry =
+          tag === "textarea" ||
+          (tag === "input" && !/^(hidden|radio|checkbox|submit|button|file|image|reset)$/i.test(element.type || "")) ||
+          element.isContentEditable ||
+          element.getAttribute("role") === "textbox";
+        if (isTextEntry) {
+          let ancestor = element.parentElement;
+          for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+            const candidateText = String(ancestor.innerText || ancestor.textContent || "")
+              .replace(/\\s+/g, " ").trim();
+            const fieldsInside = ancestor.querySelectorAll(
+              'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),textarea,[contenteditable="true"],[role="textbox"]'
+            ).length;
+            if (candidateText.length >= 8 && candidateText.length <= 360 && fieldsInside <= 1) {
+              nearbyText = candidateText;
+              break;
+            }
+          }
+        }
+
         controls.push({
           control_index: index,
 
@@ -649,6 +673,8 @@
               ? "select"
               : customDropdown
               ? "combobox"
+              : element.getAttribute("role") === "textbox"
+              ? "textbox"
               : cambridgeDraggable
               ? "draggable"
               : cambridgeDropzone
@@ -673,6 +699,7 @@
           modelId: element.getAttribute("data-model-id") || "",
           expanded: element.getAttribute("aria-expanded"),
           label: String(label).trim().slice(0, 300),
+          nearby_text: nearbyText.slice(0, 360),
           value: element.value || "",
           placeholder:
             element.getAttribute("placeholder") || "",
@@ -1796,6 +1823,37 @@
   // APLICAR RESPUESTAS
   // ==========================================
 
+  function resolveTextEntry(element) {
+    if (!element) return null;
+
+    const selector = 'textarea,input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="image"]):not([type="reset"]),[contenteditable="true"],[role="textbox"]';
+    const isTextEntry = candidate =>
+      candidate &&
+      (
+        candidate.matches?.(selector) ||
+        candidate.isContentEditable ||
+        candidate.getAttribute?.("role") === "textbox"
+      );
+
+    if (isTextEntry(element)) return element;
+
+    // Si el modelo indicó un contenedor en vez del campo, resolverlo
+    // únicamente cuando haya un único campo de texto en ese contenedor.
+    const descendants = [...(element.querySelectorAll?.(selector) || [])]
+      .filter(candidate => isVisible(candidate) && !candidate.disabled);
+    if (descendants.length === 1) return descendants[0];
+
+    let ancestor = element.parentElement;
+    for (let depth = 0; ancestor && depth < 4; depth++, ancestor = ancestor.parentElement) {
+      const fields = [...ancestor.querySelectorAll(selector)]
+        .filter(candidate => isVisible(candidate) && !candidate.disabled);
+      if (fields.length === 1) return fields[0];
+      if (fields.length > 1) break;
+    }
+
+    return null;
+  }
+
   function applyActions(actions, openedDropdownKeys = new Set()) {
     let applied = 0;
     const details = [];
@@ -1900,55 +1958,74 @@
           skipped.push("no se pudo simular el arrastre de " + word + ": " + (error?.message || "error"));
         }
 
-      } else if (
-        action.action === "fill" &&
-        (
-          element.matches(
-            'input:not([type="radio"]):not([type="checkbox"]):not([type="submit"]),textarea'
-          ) ||
-          element.isContentEditable
-        )
-      ) {
-        if (element.isContentEditable) {
-          element.textContent = value;
+      } else if (action.action === "fill") {
+        const textEntry = resolveTextEntry(element);
 
-          element.dispatchEvent(
-            new InputEvent("input", {
-              bubbles: true,
-              inputType: "insertText",
-              data: value
-            })
+        if (!textEntry) {
+          skipped.push(
+            "control " + action.control_index +
+            ": no es un campo de escritura ni contiene un único input identificable"
           );
-
-        } else {
-          const prototype =
-            element.tagName === "TEXTAREA"
-              ? HTMLTextAreaElement.prototype
-              : HTMLInputElement.prototype;
-
-          const setter =
-            Object.getOwnPropertyDescriptor(
-              prototype,
-              "value"
-            )?.set;
-
-          if (setter) {
-            setter.call(element, value);
-          } else {
-            element.value = value;
-          }
-
-          element.dispatchEvent(
-            new Event("input", { bubbles: true })
-          );
+          continue;
         }
 
-        element.dispatchEvent(
-          new Event("change", { bubbles: true })
-        );
+        const doc = textEntry.ownerDocument || document;
+        const view = doc.defaultView || window;
 
-        applied++;
-        details.push(action.question || "Campo completado");
+        try {
+          textEntry.focus({ preventScroll: true });
+
+          if (textEntry.isContentEditable ||
+              textEntry.getAttribute("role") === "textbox") {
+            textEntry.textContent = value;
+            const InputEventCtor = view.InputEvent || InputEvent;
+            textEntry.dispatchEvent(new InputEventCtor("input", {
+              bubbles: true,
+              composed: true,
+              inputType: "insertText",
+              data: value
+            }));
+          } else {
+            // Utilizar el setter del iframe propietario del input.
+            const prototype = textEntry.tagName === "TEXTAREA"
+              ? view.HTMLTextAreaElement?.prototype
+              : view.HTMLInputElement?.prototype;
+            const setter = prototype
+              ? Object.getOwnPropertyDescriptor(prototype, "value")?.set
+              : null;
+
+            if (setter) setter.call(textEntry, value);
+            else textEntry.value = value;
+
+            textEntry.dispatchEvent(new view.Event("input", {
+              bubbles: true,
+              composed: true
+            }));
+          }
+
+          textEntry.dispatchEvent(new view.Event("change", {
+            bubbles: true,
+            composed: true
+          }));
+
+          const resultingValue =
+            textEntry.isContentEditable || textEntry.getAttribute("role") === "textbox"
+              ? String(textEntry.textContent || "").trim()
+              : String(textEntry.value || "").trim();
+
+          if (resultingValue.toLowerCase() !== value.toLowerCase()) {
+            skipped.push("Cambridge no conservó el texto escrito en el control " + action.control_index);
+            continue;
+          }
+
+          applied++;
+          details.push(action.question || "Respuesta escrita: " + value);
+        } catch (error) {
+          skipped.push(
+            "No se pudo escribir en el control " + action.control_index +
+            ": " + (error?.message || "error desconocido")
+          );
+        }
 
       } else if (
         action.action === "select" &&
