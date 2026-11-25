@@ -584,6 +584,7 @@
         .filter(element =>
           isVisible(element) &&
           (element.getAttribute("role") === "checkbox" ||
+            element.control?.type === "checkbox" ||
             !!element.querySelector('input[type="checkbox"]'))
         );
       for (const element of checkboxCandidates) candidates.add(element);
@@ -646,11 +647,15 @@
         const checkboxStateElement =
           element.matches('input[type="checkbox"],[role="checkbox"]')
             ? element
-            : element.querySelector?.('input[type="checkbox"],[role="checkbox"]') || null;
+            : element.querySelector?.('input[type="checkbox"],[role="checkbox"]') ||
+              (element.control?.type === "checkbox" ? element.control : null);
         const isCheckboxControl =
           !!checkboxStateElement ||
           element.getAttribute("role") === "checkbox" ||
-          (tag === "label" && !!element.querySelector('input[type="checkbox"]'));
+          (tag === "label" && (
+            element.control?.type === "checkbox" ||
+            !!element.querySelector('input[type="checkbox"]')
+          ));
         const cambridgeDraggable =
           element.classList?.contains("gap_match_drag") &&
           element.classList?.contains("drag_element");
@@ -2201,7 +2206,8 @@
 
         // Un LABEL que contiene un checkbox oculto es también su control real.
         if (!target && element.matches("label") &&
-            element.querySelector('input[type="checkbox"]')) {
+            (element.control?.type === "checkbox" ||
+              element.querySelector('input[type="checkbox"]'))) {
           target = element;
         }
 
@@ -2366,6 +2372,7 @@
           const checkboxControl = target.matches('input[type="checkbox"],[role="checkbox"]')
             ? target
             : target.querySelector?.('input[type="checkbox"],[role="checkbox"]') ||
+              (target.control?.type === "checkbox" ? target.control : null) ||
               target.closest?.('label')?.querySelector?.('input[type="checkbox"],[role="checkbox"]');
           const isCheckboxAction = !!checkboxControl ||
             target.getAttribute("role") === "checkbox" ||
