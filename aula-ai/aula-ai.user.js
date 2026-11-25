@@ -2475,7 +2475,10 @@
         for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
           if (!isVisible(current)) continue;
           const text = String(current.innerText || current.textContent || "").replace(/\\s+/g, " ").trim();
-          const interactive = current.matches('button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex],[onclick]') || isClickable(current);
+          const view = current.ownerDocument?.defaultView || window;
+          const interactive = current.matches('button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex],[onclick]') ||
+            view.getComputedStyle(current).cursor === "pointer" ||
+            /button|btn|check|submit|action/i.test(String(current.className || ""));
           if (exactAction.test(text) && interactive) {
             submit = { element: current, label: text };
             break;
