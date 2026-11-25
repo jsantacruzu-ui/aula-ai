@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.29
+// @version      0.3.30
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -1773,6 +1773,7 @@
     const openedDropdowns = [];
     const skipped = [];
     const dragChecks = [];
+    const cambridgeClickChecks = [];
 
     for (const action of actions || []) {
       const element = indexedControls.get(
@@ -2069,6 +2070,48 @@
           continue;
         }
 
+        // Cambridge gap-match: el usuario confirma que basta un clic
+        // sobre la palabra del banco para colocarla en el espacio activo.
+        // Activar el elemento drag con la secuencia de clic (sin arrastrarlo).
+        if (target.matches(".drag_element.gap_match_drag")) {
+          const doc = target.ownerDocument;
+          const view = doc.defaultView || window;
+          const rect = target.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const init = {
+            bubbles: true, cancelable: true, composed: true,
+            view, button: 0, buttons: 1,
+            clientX: x, clientY: y, detail: 1
+          };
+
+          try {
+            target.focus({ preventScroll: true });
+            target.dispatchEvent(new view.MouseEvent("mousedown", init));
+            target.dispatchEvent(new view.MouseEvent("mouseup", {
+              ...init, buttons: 0
+            }));
+            target.dispatchEvent(new view.MouseEvent("click", {
+              ...init, buttons: 0
+            }));
+            target.click();
+
+            // La respuesta solo se considera colocada si Cambridge la
+            // retira del banco o la inserta en un espacio gap-match.
+            cambridgeClickChecks.push({
+              source: target,
+              word: String(target.innerText || target.textContent || "").trim()
+            });
+            applied++;
+            details.push("Clic de selección enviado: " +
+              String(target.innerText || target.textContent || "").trim());
+          } catch (error) {
+            skipped.push("No se pudo seleccionar la palabra: " +
+              (error?.message || "error"));
+          }
+          continue;
+        }
+
         // Simular la secuencia normal de puntero y ratón que precede
         // al clic. Todos los eventos siguen siendo sintéticos (no trusted),
         // pero cubren interfaces que escuchan pointerdown/mousedown además
@@ -2126,7 +2169,7 @@
       }
     }
 
-    return { applied, details, openedDropdowns, skipped, dragChecks };
+    return { applied, details, openedDropdowns, skipped, dragChecks, cambridgeClickChecks };
   }
 
   async function clickNext() {
@@ -2423,6 +2466,26 @@
           result.actions,
           openedDropdownKeys
         );
+
+        if (applied.cambridgeClickChecks.length) {
+          await new Promise(resolve => setTimeout(resolve, 700));
+          for (const check of applied.cambridgeClickChecks) {
+            const stillInPool = !!check.source.closest(".wordpool");
+            const placedInGap = [...check.source.ownerDocument.querySelectorAll(
+              ".drop_area.gap_match_gap_view .drag_element"
+            )].some(item =>
+              String(item.innerText || item.textContent || "")
+                .trim().toLowerCase() === check.word.toLowerCase()
+            );
+            if (stillInPool && !placedInGap) {
+              applied.applied = Math.max(0, applied.applied - 1);
+              applied.skipped.push(
+                "Cambridge no confirmó que el clic colocara la palabra \"" +
+                check.word + "\"."
+              );
+            }
+          }
+        }
 
         if (applied.dragChecks.length) {
           await new Promise(resolve => setTimeout(resolve, 750));
