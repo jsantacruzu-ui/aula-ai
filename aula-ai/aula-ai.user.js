@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.31
+// @version      0.3.32
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -2260,15 +2260,34 @@
       return null;
     };
 
-    // Después de responder, primero intentar Check. Puede ser un DIV/SPAN,
-    // no necesariamente un BUTTON nativo de Cambridge.
-    const checkButton = findAction("check");
+    // Cambridge crea el botón Check DESPUÉS de colocar las respuestas.
+    // Esperar a que la página termine de actualizarse antes de concluir
+    // que no existe. Puede ser un DIV/SPAN, no necesariamente BUTTON.
+    let checkButton = null;
+    const checkDeadline = Date.now() + 6000;
+    while (Date.now() < checkDeadline) {
+      checkButton = findAction("check");
+      if (checkButton) break;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+
     if (checkButton) {
+      // No pulsar si Cambridge todavía lo mantiene deshabilitado.
+      if (checkButton.disabled ||
+          checkButton.getAttribute("aria-disabled") === "true") {
+        const enabledDeadline = Date.now() + 4000;
+        while (Date.now() < enabledDeadline) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          if (!checkButton.disabled &&
+              checkButton.getAttribute("aria-disabled") !== "true") break;
+        }
+      }
+
       checkButton.click();
 
-      // Cambridge muestra el botón azul Next después de comprobar.
-      const deadline = Date.now() + 12000;
-      while (Date.now() < deadline) {
+      // El botón azul Next aparece solamente DESPUÉS de Check.
+      const nextDeadline = Date.now() + 12000;
+      while (Date.now() < nextDeadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
         const nextButton = findAction("next");
         if (nextButton) {
@@ -2277,11 +2296,11 @@
         }
       }
 
-      // Se hizo clic en Check: no tratarlo como el final de la actividad.
+      // Se pulsó Check; no confundir la espera de Next con el final.
       return true;
     }
 
-    // Algunas actividades muestran Next directamente, sin botón Check.
+    // Algunas actividades muestran Next directamente, sin Check.
     const nextButton = findAction("next");
     if (nextButton) {
       nextButton.click();
