@@ -855,26 +855,55 @@
     });
   }
 
-  // Cambridge One usa Sound/Howler y no crea etiquetas <audio>.
-  // Localizamos el MP3 descargado por el reproductor en cada marco.
+  // Cambridge One usa un reproductor propio y el identificador del
+  // reproductor puede terminar en "__43888", mientras que el MP3 termina
+  // en "_" (sin ese sufijo numérico). Comparamos el identificador base.
   function findCambridgeAudioUrl(player) {
     const rawId = player?.getAttribute("data-playable-media") || "";
     const mediaId = rawId.replace(/^ID_/, "");
     if (!mediaId) return "";
+
+    const assetStem = mediaId.replace(/__\d+$/, "");
+    const candidates = [];
 
     for (const root of getRoots()) {
       const doc = root.nodeType === 9 ? root : root.ownerDocument;
       const win = doc?.defaultView;
       if (!win?.performance) continue;
 
-      const match = win.performance.getEntriesByType("resource").find(entry =>
-        (entry.name || "").includes(mediaId) &&
-        /\.mp3(?:[?#]|$)/i.test(entry.name || "")
-      );
+      let entries = [];
+      try {
+        entries = win.performance.getEntriesByType("resource");
+      } catch {}
 
-      if (match) return match.name;
+      for (const entry of entries) {
+        const url = entry.name || "";
+        if (!/\.mp3(?:[?#]|$)/i.test(url)) continue;
+
+        let pathname = url;
+        try {
+          pathname = new URL(url, doc.baseURI).pathname;
+        } catch {}
+
+        const filename = pathname.split("/").pop() || "";
+        const normalizedFilename = filename.replace(/__\d+(?=\.mp3$)/i, "");
+        const normalizedStem = assetStem.replace(/__\d+$/, "");
+
+        if (
+          filename.includes(assetStem) ||
+          normalizedFilename.startsWith(normalizedStem + "_") ||
+          normalizedFilename.startsWith(normalizedStem + ".")
+        ) {
+          candidates.push({
+            url,
+            score: filename.includes(assetStem) ? 2 : 1
+          });
+        }
+      }
     }
-    return "";
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.url || "";
   }
 
   function downloadCambridgeAudio(url) {
