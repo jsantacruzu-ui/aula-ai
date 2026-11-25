@@ -2165,6 +2165,12 @@
 
         let target = element.matches(clickableSelector) ? element : null;
 
+        // Un LABEL que contiene un checkbox oculto es también su control real.
+        if (!target && element.matches("label") &&
+            element.querySelector('input[type="checkbox"]')) {
+          target = element;
+        }
+
         // Si el índice apunta al texto interno, buscar su contenedor clicable.
         if (!target) {
           let parent = element.parentElement;
