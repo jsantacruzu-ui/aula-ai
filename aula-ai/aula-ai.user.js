@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.27
+// @version      0.3.28
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -527,7 +527,41 @@
         textParts.push(text.slice(0, 9000));
       }
 
-      for (const element of root.querySelectorAll(selector)) {
+      const candidates = new Set(root.querySelectorAll(selector));
+
+      // Cambridge puede dibujar el banco de palabras con DIV/SPAN sin
+      // button, role ni clases reconocibles. Incluir los elementos visibles
+      // que realmente tienen cursor de clic y contienen una etiqueta corta.
+      const pointerCandidates = [...root.querySelectorAll("*")].filter(element => {
+        if (seen.has(element) || !isVisible(element)) return false;
+
+        const view = element.ownerDocument?.defaultView || window;
+        if (view.getComputedStyle(element).cursor !== "pointer") return false;
+
+        const label = String(element.innerText || element.textContent || "").trim();
+        return label.length > 0 && label.length <= 100;
+      });
+
+      // Preferir el descendiente más interno cuando el cursor pointer se
+      // hereda, para que el clic burbujee hacia el contenedor de Cambridge.
+      const pointerLeaves = pointerCandidates.filter(element => {
+        const ownText = String(element.innerText || element.textContent || "")
+          .replace(/\\s+/g, " ").trim();
+
+        return ![...element.querySelectorAll("*")].some(child => {
+          const childView = child.ownerDocument?.defaultView || window;
+          if (childView.getComputedStyle(child).cursor !== "pointer") return false;
+
+          const childText = String(child.innerText || child.textContent || "")
+            .replace(/\\s+/g, " ").trim();
+
+          return childText === ownText;
+        });
+      });
+
+      for (const element of pointerLeaves) candidates.add(element);
+
+      for (const element of candidates) {
         if (seen.has(element) || !isVisible(element)) {
           continue;
         }
@@ -572,6 +606,8 @@
         }
 
         const customDropdown = isCustomDropdown(element);
+        const view = element.ownerDocument?.defaultView || window;
+        const pointerClickable = view.getComputedStyle(element).cursor === "pointer";
 
         const options = tag === "select"
           ? [...element.options]
@@ -596,6 +632,8 @@
               ? "select"
               : customDropdown
               ? "combobox"
+              : pointerClickable
+              ? "clickable"
               : element.getAttribute("role") ||
                 (
                   element.isContentEditable
@@ -604,6 +642,7 @@
                 ),
 
           dropdown: customDropdown,
+          clickable: pointerClickable,
           expanded: element.getAttribute("aria-expanded"),
           label: String(label).trim().slice(0, 220),
           value: element.value || "",
@@ -1923,9 +1962,60 @@
           continue;
         }
 
-        target.click();
-        applied++;
-        details.push(action.question || ("Clic en: " + (label.slice(0, 60) || "opción")));
+        // Simular la secuencia normal de puntero y ratón que precede
+        // al clic. Todos los eventos siguen siendo sintéticos (no trusted),
+        // pero cubren interfaces que escuchan pointerdown/mousedown además
+        // de click.
+        const targetView = target.ownerDocument?.defaultView || window;
+        const rect = target.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const pointerInit = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX,
+          clientY
+        };
+        const mouseDownInit = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          button: 0,
+          buttons: 1,
+          clientX,
+          clientY,
+          view: targetView
+        };
+
+        try {
+          if (targetView.PointerEvent) {
+            target.dispatchEvent(new targetView.PointerEvent("pointerover", pointerInit));
+            target.dispatchEvent(new targetView.PointerEvent("pointermove", pointerInit));
+            target.dispatchEvent(new targetView.PointerEvent("pointerdown", pointerInit));
+          }
+          target.dispatchEvent(new targetView.MouseEvent("mouseover", mouseDownInit));
+          target.dispatchEvent(new targetView.MouseEvent("mousemove", mouseDownInit));
+          target.dispatchEvent(new targetView.MouseEvent("mousedown", mouseDownInit));
+
+          const pointerUpInit = { ...pointerInit, buttons: 0 };
+          const mouseUpInit = { ...mouseDownInit, buttons: 0 };
+          if (targetView.PointerEvent) {
+            target.dispatchEvent(new targetView.PointerEvent("pointerup", pointerUpInit));
+          }
+          target.dispatchEvent(new targetView.MouseEvent("mouseup", mouseUpInit));
+          target.click();
+
+          applied++;
+          details.push(action.question || ("Clic enviado a: " + (label.slice(0, 60) || "opción")));
+        } catch (error) {
+          skipped.push("control " + action.control_index + ": error al simular el clic (" + (error?.message || "desconocido") + ")");
+        }
       }
     }
 
