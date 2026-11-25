@@ -376,7 +376,8 @@ Devuelve SOLO JSON válido con esta estructura:
   "actions": [
     {
       "control_index": 0,
-      "action": "fill|select|click|click_image",
+      "action": "fill|select|click|click_image|drag",
+      "target_control_index": 0,
       "value": "respuesta exacta",
       "question": "pregunta breve",
       "explanation": "razón breve",
@@ -396,12 +397,14 @@ Reglas:
   - Si ya hay opciones en options o hay controles visibles de tipo option/menuitem/data-value, elige la opción cuyo texto coincide con la respuesta y devuelve select sobre el control desplegable con el texto exacto de la opción, o click sobre el control_index exacto de esa opción.
   - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
-- En ejercicios de completar oraciones con un banco de palabras/cuadros de respuestas, identifica las palabras disponibles y los espacios vacíos de cada oración.
-- Si Cambridge indica que se debe hacer clic en una palabra del banco para colocarla en el espacio, devuelve action "click" con el control_index exacto de esa palabra/opción. Usa una acción por palabra necesaria y no hagas clic en botones de navegación.
-- Los elementos type button, clickable, draggable, word, token, choice o answer-option pueden ser opciones seleccionables si su texto coincide con una respuesta del ejercicio.
-- Un control con clickable: true fue detectado porque Cambridge le aplica cursor de clic aunque su HTML sea DIV o SPAN. Trátalo como opción interactiva cuando su texto coincida exactamente con una palabra del banco y el contexto de la oración la requiera.
-- En un banco de palabras, compara las opciones visibles con la oración completa; para "It's ___ today. Let's go to the swimming pool.", la opción que expresa calor intenso es "boiling". Devuelve click únicamente sobre el control cuyo label sea exactamente "boiling".
-- No elijas por parecido parcial ni pulses el espacio vacío si la actividad indica que se debe hacer clic directamente en una palabra.
+- En ejercicios de completar oraciones con un banco de palabras, identifica las palabras disponibles y cada espacio vacío.
+- Si los controles incluyen type "draggable" con cambridgeInteraction "drag-source" y type "dropzone" con cambridgeInteraction "drop-target", esta es una actividad Cambridge de arrastrar y soltar.
+- Para esa actividad devuelve action "drag": control_index debe ser el índice de la palabra que se arrastra y target_control_index debe ser el índice del espacio vacío correcto. No devuelvas click sobre la palabra ni sobre el espacio.
+- Usa el label del dropzone, que contiene la oración que rodea al espacio, para decidir el destino. Compara el sentido de la oración con las palabras del banco.
+- Para "It's ___ today. Let's go to the swimming pool.", la palabra adecuada es "boiling"; devuelve un drag desde el control draggable cuyo label sea exactamente "boiling" hacia el dropzone de esa oración.
+- Devuelve una acción por cada espacio que puedas resolver con certeza. No reutilices una palabra ya colocada, salvo que el ejercicio indique que puede reutilizarse.
+- Los controles type button, clickable, word, token, choice o answer-option pueden ser opciones de clic en otras actividades, pero no confundas esos controles con los draggables de Cambridge gap-match.
+- No elijas por parecido parcial ni inventes índices.
 - Si el espacio se completa automáticamente al hacer clic en la palabra, no intentes escribir directamente en el espacio. Si hay que seleccionar primero el espacio y después la palabra, usa los controles del espacio y de la palabra en el orden que indique claramente la interfaz; no adivines.
 - En una actividad donde se pide elegir o relacionar una descripción con una imagen, considera las opciones type "image" como respuestas seleccionables, aunque el HTML original no las llame botones.
 - Compara el texto actual de la pregunta (por ejemplo, "a snowy day", "a rainy day" o "a hot day") con el contenido visual de CADA imagen enviada. Las imágenes se identifican en sus descripciones como "Opción visual número N".
