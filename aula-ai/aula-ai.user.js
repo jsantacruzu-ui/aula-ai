@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.33
+// @version      0.3.34
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -2864,19 +2864,21 @@
         <div id="tools" style="display:none">
 
           <label class="small">
-            Máximo de preguntas por ejecución
+            Alcance de la ejecución
           </label>
 
           <select id="max">
-            <option>1</option>
-            <option>3</option>
-            <option selected>5</option>
-            <option>10</option>
+            <option value="1">1 tarea</option>
+            <option value="3">3 tareas</option>
+            <option value="5">5 tareas</option>
+            <option value="10">10 tareas</option>
+            <option value="20">20 tareas</option>
+            <option value="100" selected>Toda la sesión (hasta 100 tareas)</option>
           </select>
 
           <p class="small">
             <input id="auto" type="checkbox" checked>
-            Modo automático: avanzar cuando sea seguro
+            Modo automático: responder, pulsar Check y Next, y analizar la siguiente tarea
           </p>
 
           <p class="small">
@@ -2916,8 +2918,9 @@
         </div>
 
         <p class="small">
-          Aula AI reproduce el audio, analiza el contenido y coloca las respuestas.
-          Con el envío automático activado, pulsa Comprobar / Enviar al llegar al final.
+          Inicia una sola vez para que Aula AI analice y responda cada tarea después de Next.
+          Continúa automáticamente hasta completar la sesión o llegar al límite seleccionado.
+          Puedes detener el proceso con el botón Detener.
         </p>
       </section>
 
