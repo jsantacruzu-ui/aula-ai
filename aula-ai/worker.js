@@ -379,7 +379,7 @@ async function handleSolve(body, env, session) {
   // Un ejercicio explícitamente basado en listening no debe resolverse
   // a ciegas. Detener antes de llamar al modelo si no hay transcripción.
   const isListeningChoiceTask =
-    /listen[\\s\\S]{0,120}choose\\s+the\\s+correct\\s+answers?/i.test(pageText);
+    /listen[\s\S]{0,120}choose\s+the\s+correct\s+answers?/i.test(pageText);
 
   if (isListeningChoiceTask && !audioText.trim()) {
     return json({
