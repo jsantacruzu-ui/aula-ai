@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.35
+// @version      0.3.36
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -2654,6 +2654,23 @@
           // Volver a analizar la misma pregunta, sin consumir un paso.
           step--;
           continue;
+        }
+
+        // Cambridge puede presentar varios desplegables personalizados en
+        // una misma conversación. Después de elegir una opción, abrir el
+        // siguiente cuadro cerrado y volver a analizar la MISMA actividad.
+        // Así no se intenta pulsar Check hasta completar todos los espacios.
+        if (applied.applied > 0) {
+          const nextDropdown = openNextDropdown(openedDropdownKeys);
+          if (nextDropdown) {
+            report(
+              runId,
+              `Respuesta seleccionada. Abriendo el siguiente desplegable: ${nextDropdown}. Leyendo sus opciones…`
+            );
+            await new Promise(resolve => setTimeout(resolve, 450));
+            step--;
+            continue;
+          }
         }
 
         const applyDiagnostic = applied.skipped.length
