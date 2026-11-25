@@ -398,10 +398,10 @@ Reglas:
   - No devuelvas click sobre el propio cuadro cuando ya está abierto y las opciones están visibles.
 - Para radios, casillas y opciones interactivas usa click.
 - En ejercicios de completar oraciones con un banco de palabras, identifica las palabras disponibles y cada espacio vacío.
-- Si los controles incluyen type "draggable" con cambridgeInteraction "drag-source" y type "dropzone" con cambridgeInteraction "drop-target", esta es una actividad Cambridge de arrastrar y soltar.
-- Para esa actividad devuelve action "drag": control_index debe ser el índice de la palabra que se arrastra y target_control_index debe ser el índice del espacio vacío correcto. No devuelvas click sobre la palabra ni sobre el espacio. Esta regla es prioritaria y reemplaza cualquier regla genérica posterior sobre hacer clic en palabras de un banco cuando los controles sean gap_match_drag/gap_match_gap_view.
-- Usa el label del dropzone, que contiene la oración que rodea al espacio, para decidir el destino. Compara el sentido de la oración con las palabras del banco.
-- Para "It's ___ today. Let's go to the swimming pool.", la palabra adecuada es "boiling"; devuelve un drag desde el control draggable cuyo label sea exactamente "boiling" hacia el dropzone de esa oración.
+- Cuando detectes controles Cambridge con clases gap_match_drag y gap_match_gap_view, NO uses action "drag". El usuario confirma que en esta actividad basta hacer un clic en la palabra del banco para que Cambridge la coloque en el espacio activo.
+- Devuelve action "click" con el control_index exacto de la palabra correcta del banco. No envíes target_control_index ni intentes arrastrar.
+- Usa la oración asociada al espacio para decidir qué palabra elegir. Para "It's ___ today. Let's go to the swimming pool.", selecciona "boiling".
+- Devuelve una acción de clic por cada palabra que se pueda colocar con certeza; no pulses espacios ni botones de navegación.
 - Devuelve una acción por cada espacio que puedas resolver con certeza. No reutilices una palabra ya colocada, salvo que el ejercicio indique que puede reutilizarse.
 - Los controles type button, clickable, word, token, choice o answer-option pueden ser opciones de clic en otras actividades, pero no confundas esos controles con los draggables de Cambridge gap-match.
 - No elijas por parecido parcial ni inventes índices.
