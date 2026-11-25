@@ -398,7 +398,10 @@ Reglas:
 - Para radios, casillas y opciones interactivas usa click.
 - En ejercicios de completar oraciones con un banco de palabras/cuadros de respuestas, identifica las palabras disponibles y los espacios vacíos de cada oración.
 - Si Cambridge indica que se debe hacer clic en una palabra del banco para colocarla en el espacio, devuelve action "click" con el control_index exacto de esa palabra/opción. Usa una acción por palabra necesaria y no hagas clic en botones de navegación.
-- Los elementos type button, draggable, word, token, choice o answer-option pueden ser opciones seleccionables si su texto coincide con una respuesta del ejercicio. No selecciones textos del menú de cuenta, navegación ni elementos ajenos al ejercicio.
+- Los elementos type button, clickable, draggable, word, token, choice o answer-option pueden ser opciones seleccionables si su texto coincide con una respuesta del ejercicio.
+- Un control con clickable: true fue detectado porque Cambridge le aplica cursor de clic aunque su HTML sea DIV o SPAN. Trátalo como opción interactiva cuando su texto coincida exactamente con una palabra del banco y el contexto de la oración la requiera.
+- En un banco de palabras, compara las opciones visibles con la oración completa; para "It's ___ today. Let's go to the swimming pool.", la opción que expresa calor intenso es "boiling". Devuelve click únicamente sobre el control cuyo label sea exactamente "boiling".
+- No elijas por parecido parcial ni pulses el espacio vacío si la actividad indica que se debe hacer clic directamente en una palabra.
 - Si el espacio se completa automáticamente al hacer clic en la palabra, no intentes escribir directamente en el espacio. Si hay que seleccionar primero el espacio y después la palabra, usa los controles del espacio y de la palabra en el orden que indique claramente la interfaz; no adivines.
 - En una actividad donde se pide elegir o relacionar una descripción con una imagen, considera las opciones type "image" como respuestas seleccionables, aunque el HTML original no las llame botones.
 - Compara el texto actual de la pregunta (por ejemplo, "a snowy day", "a rainy day" o "a hot day") con el contenido visual de CADA imagen enviada. Las imágenes se identifican en sus descripciones como "Opción visual número N".
