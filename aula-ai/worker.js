@@ -455,6 +455,13 @@ Reglas:
   - No confundas el menú de un cuadro con el de otro; nunca selecciones una opción perteneciente a un menú distinto.
   - No devuelvas click sobre el propio cuadro cuando sus opciones ya están abiertas y visibles.
 - Para radios, casillas y opciones interactivas usa click.
+- NUEVO CASO: listening + completar una oración con palabras de ayuda debajo.
+  - Si el enunciado dice "Listen and complete the response" y "Use one of the words below", escucha/transcribe el audio, interpreta la oración y compara las palabras de ayuda.
+  - En este formato, las palabras debajo son PISTAS TEXTUALES, no botones. No devuelvas action "click" para ellas aunque aparezcan en los controles.
+  - Devuelve action "fill" con la palabra correcta en el único control type text/textarea/textbox/contenteditable asociado a la oración incompleta. Usa nearby_text para reconocerlo.
+  - Si hay un único campo de texto visible y un espacio vacío, utiliza ese campo y no informes que la tarea está resuelta sin devolver fill.
+  - No confundas este formato con el banco interactivo gap-match: solo haz clic en palabras cuando la actividad realmente las presenta como controles interactivos para colocar/seleccionar.
+  - Escribe únicamente la palabra o frase que completa la oración, no la transcripción completa del audio.
 - En ejercicios de completar oraciones con un banco de palabras, identifica las palabras disponibles y cada espacio vacío.
 - Cuando detectes controles Cambridge con clases gap_match_drag y gap_match_gap_view, NO uses action "drag". El usuario confirma que en esta actividad basta hacer un clic en la palabra del banco para que Cambridge la coloque en el espacio activo.
 - Devuelve action "click" con el control_index exacto de la palabra correcta del banco. No envíes target_control_index ni intentes arrastrar.
@@ -532,6 +539,54 @@ ${JSON.stringify(controls)}
   const parsed = parseFirstJsonObject(raw);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("La IA no devolvió un objeto de respuestas válido.");
+  }
+
+  // Listening + oración incompleta con palabras de ayuda:
+  // las palabras debajo son pistas, no botones que deban pulsarse.
+  const isListeningTextGap =
+    /listen\\s+and\\s+complete/i.test(pageText) &&
+    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
+
+  if (isListeningTextGap) {
+    const textControls = controls.filter(control =>
+      /^(text|search|email|number|tel|url|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+    );
+
+    if (textControls.length === 1) {
+      const target = textControls[0];
+      const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+      const hasFill = actions.some(action =>
+        action.action === "fill" &&
+        Number(action.control_index) === Number(target.control_index) &&
+        String(action.value || "").trim()
+      );
+
+      if (!hasFill) {
+        const hintClick = actions.find(action =>
+          action.action === "click" &&
+          controls.some(control => Number(control.control_index) === Number(action.control_index))
+        );
+        const hintControl = hintClick
+          ? controls.find(control => Number(control.control_index) === Number(hintClick.control_index))
+          : null;
+        const candidate = String(hintClick?.value || hintControl?.label || "").trim();
+
+        if (candidate && candidate.length <= 80) {
+          parsed.actions = actions.filter(action =>
+            !(action.action === "click" && Number(action.control_index) === Number(hintClick.control_index))
+          );
+          parsed.actions.push({
+            control_index: target.control_index,
+            action: "fill",
+            value: candidate,
+            question: "Completar la oración escuchando el audio y usando las palabras de ayuda",
+            explanation: "Las palabras debajo son pistas; la respuesta se escribe en el espacio.",
+            confidence: 0.85
+          });
+          parsed.summary = "Se identificó la palabra de ayuda y se preparó para escribirla en el espacio de la oración.";
+        }
+      }
+    }
   }
 
   await recordUsage(
