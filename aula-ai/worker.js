@@ -544,8 +544,8 @@ ${JSON.stringify(controls)}
   // Listening + oración incompleta con palabras de ayuda:
   // las palabras debajo son pistas, no botones que deban pulsarse.
   const isListeningTextGap =
-    /listen\\s+and\\s+complete/i.test(pageText) &&
-    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
+    /listen\s+and\s+complete/i.test(pageText) &&
+    /use\s+one\s+of\s+the\s+words\s+below/i.test(pageText);
 
   if (isListeningTextGap) {
     const textControls = controls.filter(control =>
