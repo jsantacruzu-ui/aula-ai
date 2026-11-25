@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.34
+// @version      0.3.35
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -2033,23 +2033,32 @@
       ) {
         const option = [...element.options].find(item =>
           item.text.trim().toLowerCase() === value.toLowerCase() ||
-          item.value.toLowerCase() === value.toLowerCase()
+          String(item.value || "").trim().toLowerCase() === value.toLowerCase()
         );
 
-        if (option) {
-          element.value = option.value;
-
-          element.dispatchEvent(
-            new Event("input", { bubbles: true })
-          );
-
-          element.dispatchEvent(
-            new Event("change", { bubbles: true })
-          );
-
-          applied++;
-          details.push(action.question || "Opción seleccionada");
+        if (!option) {
+          skipped.push("control " + action.control_index + ": la opción \"" + value + "\" no existe en ese desplegable");
+          continue;
         }
+
+        const doc = element.ownerDocument || document;
+        const view = doc.defaultView || window;
+        element.focus({ preventScroll: true });
+        element.value = option.value;
+        element.dispatchEvent(new view.Event("input", { bubbles: true, composed: true }));
+        element.dispatchEvent(new view.Event("change", { bubbles: true, composed: true }));
+
+        const selected = element.options[element.selectedIndex];
+        if (!selected || (
+          selected.text.trim().toLowerCase() !== value.toLowerCase() &&
+          String(selected.value || "").trim().toLowerCase() !== value.toLowerCase()
+        )) {
+          skipped.push("Cambridge no confirmó la selección en el desplegable " + action.control_index);
+          continue;
+        }
+
+        applied++;
+        details.push(action.question || ("Opción seleccionada: " + option.text));
 
       } else if (
         action.action === "select" &&
