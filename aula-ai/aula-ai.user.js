@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.36
+// @version      0.3.37
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -688,6 +688,9 @@
                     : tag
                 ),
 
+          // Señal explícita para el Worker: algunos controles editables de
+          // Cambridge se presentan como DIV/SPAN y no como input type=text.
+          editable: isTextEntry,
           dropdown: customDropdown,
           clickable: pointerClickable,
           cambridgeInteraction: cambridgeDraggable
