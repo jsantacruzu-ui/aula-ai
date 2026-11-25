@@ -540,6 +540,25 @@ ${JSON.stringify(controls)}
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("La IA no devolvió un objeto de respuestas válido.");
   }
+  let precisionReview = "normal";
+  if (body.precision === "high") {
+    try {
+      const reviewRaw = await runModel(env, [
+        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
+        { role:"user", content:[...content,{type:"text",text:"\\nPropuesta inicial (puede contener errores):\\n"+JSON.stringify(parsed)+"\\nResuelve independientemente y devuelve las acciones finales corregidas."}] }
+      ],2200);
+      const reviewed=parseFirstJsonObject(reviewRaw);
+      if(reviewed && Array.isArray(reviewed.actions) && reviewed.actions.length) {
+        parsed.actions=reviewed.actions;
+        parsed.summary=reviewed.summary || "Respuesta revisada por un segundo análisis independiente.";
+        parsed.stop_reason=reviewed.stop_reason || "";
+        precisionReview="double-checked";
+      } else precisionReview="review-unavailable";
+    } catch(error) {
+      console.warn("Aula AI second review failed:",error?.message||error);
+      precisionReview="review-unavailable";
+    }
+  }
 
   // Listening + oración incompleta con palabras de ayuda:
   // identificar campos editables reales aunque Cambridge los etiquete
@@ -667,6 +686,7 @@ ${JSON.stringify(controls)}
   return json({
     ...parsed,
     model: MODEL,
+    precisionReview,
     media: {
       images: images.length,
       audioTranscribed: !!audioText,
