@@ -399,7 +399,7 @@ Reglas:
 - Para radios, casillas y opciones interactivas usa click.
 - En ejercicios de completar oraciones con un banco de palabras, identifica las palabras disponibles y cada espacio vacío.
 - Si los controles incluyen type "draggable" con cambridgeInteraction "drag-source" y type "dropzone" con cambridgeInteraction "drop-target", esta es una actividad Cambridge de arrastrar y soltar.
-- Para esa actividad devuelve action "drag": control_index debe ser el índice de la palabra que se arrastra y target_control_index debe ser el índice del espacio vacío correcto. No devuelvas click sobre la palabra ni sobre el espacio.
+- Para esa actividad devuelve action "drag": control_index debe ser el índice de la palabra que se arrastra y target_control_index debe ser el índice del espacio vacío correcto. No devuelvas click sobre la palabra ni sobre el espacio. Esta regla es prioritaria y reemplaza cualquier regla genérica posterior sobre hacer clic en palabras de un banco cuando los controles sean gap_match_drag/gap_match_gap_view.
 - Usa el label del dropzone, que contiene la oración que rodea al espacio, para decidir el destino. Compara el sentido de la oración con las palabras del banco.
 - Para "It's ___ today. Let's go to the swimming pool.", la palabra adecuada es "boiling"; devuelve un drag desde el control draggable cuyo label sea exactamente "boiling" hacia el dropzone de esa oración.
 - Devuelve una acción por cada espacio que puedas resolver con certeza. No reutilices una palabra ya colocada, salvo que el ejercicio indique que puede reutilizarse.
