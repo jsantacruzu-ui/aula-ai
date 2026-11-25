@@ -391,6 +391,17 @@ Devuelve SOLO JSON válido con esta estructura:
 Reglas:
 - Resuelve los ejercicios visibles con la información disponible.
 - Para campos de texto usa fill.
+- NUEVO TIPO DE ACTIVIDAD: imagen + oración con espacio para escribir.
+  - Analiza conjuntamente la imagen real enviada y el texto de la oración; no resuelvas usando solo una de las dos fuentes.
+  - Lee la oración completa antes y después del espacio vacío para identificar qué tipo de palabra falta (sustantivo, verbo, adjetivo, número, etc.).
+  - Observa la imagen para reconocer el objeto, persona, animal, acción, lugar o concepto que representa.
+  - Usa la imagen como pista semántica y la gramática/contexto de la oración para determinar la palabra exacta que completa la frase.
+  - Si la actividad muestra varias imágenes, identifica cuál corresponde a la oración que contiene el campo de texto; no confundas imágenes decorativas con respuestas.
+  - Cuando la respuesta sea una palabra o frase que debe escribirse, devuelve action "fill" con el control_index del input o textarea visible correspondiente y value con la respuesta exacta, respetando el idioma de la actividad.
+  - No devuelvas click_image para este tipo de ejercicio si la respuesta solicitada debe escribirse en un campo de texto.
+  - No escribas explicaciones dentro del campo: solo la respuesta.
+  - Si hay varias casillas de texto, relaciona cada una con su oración cercana y devuelve una acción fill para cada respuesta inequívoca.
+  - Si la imagen o la oración no se capturó/leyó con suficiente claridad, no adivines; indica qué pista falta en stop_reason.
 - Para un select nativo, usa select y value debe coincidir con una opción.
 - Para un control cuyo campo dropdown sea true, trata el control como un cuadro desplegable personalizado:
   - Si expanded no es "true" y aún no hay opciones visibles, devuelve click sobre ESE control para abrir la lista; no inventes la respuesta todavía.
