@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.26
+// @version      0.3.27
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -476,6 +476,8 @@
       '[class*="answer-option" i]',
       '[class*="word-option" i]',
       '[class*="choice" i]',
+      '[onclick]',
+      '[tabindex]',
       '[role="radio"]',
       '[role="checkbox"]',
       '[role="combobox"]',
@@ -1702,13 +1704,21 @@
     let applied = 0;
     const details = [];
     const openedDropdowns = [];
+    const skipped = [];
 
     for (const action of actions || []) {
       const element = indexedControls.get(
         Number(action.control_index)
       );
 
-      if (!element || element.disabled) continue;
+      if (!element) {
+        skipped.push("control " + action.control_index + ": índice no disponible");
+        continue;
+      }
+      if (element.disabled) {
+        skipped.push("control " + action.control_index + ": está deshabilitado");
+        continue;
+      }
 
       const value = String(
         action.value ?? ""
@@ -1845,22 +1855,58 @@
         details.push(action.question || `Imagen ${action.image_number || ""} seleccionada`);
 
       } else if (action.action === "click") {
+        // Resolver el elemento interactivo real. En Cambridge, la palabra
+        // visible puede estar dentro de un DIV/SPAN cuyo padre recibe el clic.
+        const clickableSelector =
+          'button,[role="button"],[role="option"],[role="menuitem"],' +
+          '[role="radio"],[role="checkbox"],input[type="radio"],input[type="checkbox"],' +
+          '[onclick],[tabindex],[data-value],[draggable="true"],[data-draggable="true"],' +
+          '[data-drop-target="true"],[data-testid*="word" i],[data-testid*="token" i],' +
+          '[data-testid*="blank" i],[data-testid*="gap" i],' +
+          '[class*="word" i],[class*="token" i],[class*="word-option" i],' +
+          '[class*="answer-option" i],[class*="choice" i],[class*="option" i],' +
+          '[class*="blank" i],[class*="gap" i],[class*="drop-target" i],' +
+          '[class*="answer-slot" i],[class*="dropdown" i],[class*="select" i],[class*="combobox" i]';
+
+        let target = element.matches(clickableSelector) ? element : null;
+
+        // Si el índice apunta al texto interno, buscar su contenedor clicable.
+        if (!target) {
+          let parent = element.parentElement;
+          for (let depth = 0; parent && depth < 5; depth++, parent = parent.parentElement) {
+            const view = parent.ownerDocument?.defaultView || window;
+            const cursorPointer = view.getComputedStyle(parent).cursor === "pointer";
+            if (parent.matches(clickableSelector) || cursorPointer) {
+              target = parent;
+              break;
+            }
+          }
+        }
+
+        if (!target) {
+          skipped.push("control " + action.control_index + ": no se encontró un elemento clicable para \"" +
+            String(element.innerText || element.textContent || "").trim().slice(0, 45) + "\"");
+          continue;
+        }
+
         const label = (
+          target.innerText ||
+          target.value ||
+          target.getAttribute("aria-label") ||
+          target.textContent ||
           element.innerText ||
-          element.value ||
-          element.getAttribute("aria-label") ||
           element.textContent ||
           ""
         ).trim().toLowerCase();
 
         // Primero se abre el cuadro desplegable; la opción se elige
         // en una segunda lectura, cuando la lista ya esté visible.
-        if (isCustomDropdown(element)) {
-          const expanded = element.getAttribute("aria-expanded") === "true";
-          const key = dropdownStableKey(element);
+        if (isCustomDropdown(target)) {
+          const expanded = target.getAttribute("aria-expanded") === "true";
+          const key = dropdownStableKey(target);
 
           if (!expanded && !openedDropdownKeys.has(key)) {
-            element.click();
+            target.click();
             openedDropdownKeys.add(key);
             openedDropdowns.push(label || "lista desplegable");
             break;
@@ -1869,26 +1915,21 @@
           continue;
         }
 
-        // Prohibido accionar botones finales.
+        // Prohibido accionar botones finales o salir de la actividad.
         if (
           /submit|finish|finalizar|entregar|enviar|terminar|salir|exit|complete|send|next|siguiente|continuar|check answers|comprobar/i.test(label)
         ) {
+          skipped.push("control " + action.control_index + ": se bloqueó un control de navegación/finalización");
           continue;
         }
 
-        if (
-          element.matches(
-            'input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],[role="option"],[role="menuitem"],[role="listbox"] li,[role="menu"] li,[class*="dropdown-menu" i] li,[class*="select-menu" i] li,[role="listbox"] [class*="option" i],[role="listbox"] [class*="choice" i],[role="menu"] [class*="option" i],[class*="dropdown-menu" i] [class*="option" i],[class*="select-menu" i] [class*="option" i],[data-value],li[tabindex],[aria-checked],[aria-selected],[aria-pressed],label,button,[role="button"],[draggable="true"],[data-draggable="true"],[data-testid*="word" i],[data-testid*="token" i],[class*="word" i],[class*="token" i],[class*="word-option" i],[class*="answer-option" i],[class*="choice" i]'
-          )
-        ) {
-          element.click();
-          applied++;
-          details.push(action.question || "Opción marcada");
-        }
+        target.click();
+        applied++;
+        details.push(action.question || ("Clic en: " + (label.slice(0, 60) || "opción")));
       }
     }
 
-    return { applied, details, openedDropdowns };
+    return { applied, details, openedDropdowns, skipped };
   }
 
   async function clickNext() {
@@ -2200,10 +2241,14 @@
           continue;
         }
 
+        const applyDiagnostic = applied.applied === 0 && applied.skipped.length
+          ? "\nDetalle técnico: " + applied.skipped.slice(0, 4).join("; ")
+          : "";
+
         report(
           runId,
           `Pregunta ${step}: ${applied.applied} respuesta(s) colocada(s). ` +
-          `${result.summary || ""}`
+          `${result.summary || ""}${applyDiagnostic}`
         );
 
         if (
