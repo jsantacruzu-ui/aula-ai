@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.39
+// @version      0.3.40
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -578,6 +578,16 @@
 
       for (const element of pointerLeaves) candidates.add(element);
 
+      // Cambridge puede ocultar el input checkbox y dibujar la casilla
+      // dentro de un LABEL. Registrar el contenedor visible para poder marcarlo.
+      const checkboxCandidates = [...root.querySelectorAll('label,[role="checkbox"]')]
+        .filter(element =>
+          isVisible(element) &&
+          (element.getAttribute("role") === "checkbox" ||
+            !!element.querySelector('input[type="checkbox"]'))
+        );
+      for (const element of checkboxCandidates) candidates.add(element);
+
       for (const element of candidates) {
         if (seen.has(element) || !isVisible(element)) {
           continue;
@@ -683,6 +693,9 @@
           type:
             tag === "input"
               ? element.type || "text"
+              : element.getAttribute("role") === "checkbox" ||
+                (tag === "label" && !!element.querySelector('input[type="checkbox"]'))
+              ? "checkbox"
               : tag === "textarea"
               ? "textarea"
               : tag === "select"
@@ -1880,6 +1893,7 @@
     const skipped = [];
     const dragChecks = [];
     const cambridgeClickChecks = [];
+    const checkboxChecks = [];
 
     for (const action of actions || []) {
       const element = indexedControls.get(
@@ -2309,6 +2323,22 @@
           target.dispatchEvent(new targetView.MouseEvent("mouseup", mouseUpInit));
           target.click();
 
+          const checkboxControl = target.matches('input[type="checkbox"],[role="checkbox"]')
+            ? target
+            : target.querySelector?.('input[type="checkbox"],[role="checkbox"]') ||
+              target.closest?.('label')?.querySelector?.('input[type="checkbox"],[role="checkbox"]');
+          const isCheckboxAction = !!checkboxControl ||
+            target.getAttribute("role") === "checkbox" ||
+            element.getAttribute("role") === "checkbox";
+
+          if (isCheckboxAction) {
+            checkboxChecks.push({
+              target,
+              checkbox: checkboxControl,
+              label: label.slice(0, 100)
+            });
+          }
+
           applied++;
           details.push(action.question || ("Clic enviado a: " + (label.slice(0, 60) || "opción")));
         } catch (error) {
@@ -2317,7 +2347,7 @@
       }
     }
 
-    return { applied, details, openedDropdowns, skipped, dragChecks, cambridgeClickChecks };
+    return { applied, details, openedDropdowns, skipped, dragChecks, cambridgeClickChecks, checkboxChecks };
   }
 
   async function clickNext() {
@@ -2660,6 +2690,30 @@
           result.actions,
           openedDropdownKeys
         );
+
+        // Comprobar que cada casilla seleccionada realmente quedó marcada.
+        if (applied.checkboxChecks.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          for (const check of applied.checkboxChecks) {
+            const control = check.checkbox || check.target;
+            const marked =
+              control?.checked === true ||
+              control?.getAttribute?.("aria-checked") === "true" ||
+              control?.getAttribute?.("aria-selected") === "true" ||
+              control?.getAttribute?.("aria-pressed") === "true" ||
+              control?.getAttribute?.("data-state") === "checked" ||
+              /(^|\\s)(checked|selected|is-checked|active)(\\s|$)/i.test(String(control?.className || ""));
+
+            if (!marked) {
+              applied.applied = Math.max(0, applied.applied - 1);
+              applied.skipped.push(
+                "Cambridge no confirmó que la casilla \"" +
+                check.label + "\" quedara marcada."
+              );
+            }
+          }
+        }
+
         const answerSummary = result.actions.map(action => {
           const control = snapshot.controls.find(item => Number(item.control_index) === Number(action.control_index));
           return { question: action.question || control?.nearby_text || control?.label || "", answer: action.value || control?.label || "" };
