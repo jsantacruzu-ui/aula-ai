@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.38
+// @version      0.3.39
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -2246,6 +2246,20 @@
           continue;
         }
 
+        // Evitar desmarcar casillas que ya están seleccionadas.
+        const checkbox = target.matches('input[type="checkbox"],[role="checkbox"]')
+          ? target
+          : target.querySelector?.('input[type="checkbox"],[role="checkbox"]') ||
+            target.closest?.('label')?.querySelector?.('input[type="checkbox"]');
+        if (checkbox && (
+          checkbox.checked === true ||
+          checkbox.getAttribute("aria-checked") === "true" ||
+          checkbox.getAttribute("aria-selected") === "true"
+        )) {
+          details.push("Casilla ya marcada: " + (label.slice(0, 60) || "opción"));
+          continue;
+        }
+
         // Simular la secuencia normal de puntero y ratón que precede
         // al clic. Todos los eventos siguen siendo sintéticos (no trusted),
         // pero cubren interfaces que escuchan pointerdown/mousedown además
@@ -2418,8 +2432,9 @@
   // Envía o comprueba las respuestas únicamente al llegar al final,
   // cuando ya no existe un control seguro para pasar a otra pregunta.
   function clickSubmitAnswers() {
+    // Incluir controles Cambridge representados como DIV/SPAN interactivos.
     const elements = allElements(
-      'button,[role="button"],input[type="button"],input[type="submit"]'
+      'button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex],[onclick],[aria-label],[title],[data-testid]'
     ).filter(isVisible);
 
     const exactAction =
@@ -2440,12 +2455,37 @@
 
     // Comprobar cada etiqueta por separado: el texto visible y aria-label
     // pueden repetir el mismo nombre y no deben invalidar la coincidencia.
-    const submit = candidates.find(({ labels }) =>
+    let submit = candidates.find(({ labels }) =>
       labels.some(label => exactAction.test(label))
     );
 
-    if (!submit) return null;
+    // Buscar también texto exacto dentro de DIV/SPAN, subiendo al control
+    // interactivo más cercano. Nunca se pulsa una etiqueta aproximada.
+    if (!submit) {
+      const matches = allElements("*")
+        .filter(isVisible)
+        .filter(element => {
+          const text = String(element.innerText || element.textContent || "").replace(/\\s+/g, " ").trim();
+          return text && text.length <= 70 && exactAction.test(text);
+        })
+        .sort((x, y) => String(x.innerText || x.textContent || "").length - String(y.innerText || y.textContent || "").length);
 
+      for (const match of matches) {
+        let current = match;
+        for (let depth = 0; current && depth < 6; depth++, current = current.parentElement) {
+          if (!isVisible(current)) continue;
+          const text = String(current.innerText || current.textContent || "").replace(/\\s+/g, " ").trim();
+          const interactive = current.matches('button,[role="button"],input[type="button"],input[type="submit"],a,[tabindex],[onclick]') || isClickable(current);
+          if (exactAction.test(text) && interactive) {
+            submit = { element: current, label: text };
+            break;
+          }
+        }
+        if (submit) break;
+      }
+    }
+
+    if (!submit || submit.element.disabled || submit.element.getAttribute("aria-disabled") === "true") return null;
     submit.element.click();
     return submit.label || "Enviar / comprobar respuestas";
   }
