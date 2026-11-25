@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.40
+// @version      0.3.41
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
