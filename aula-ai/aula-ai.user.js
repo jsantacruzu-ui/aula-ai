@@ -2459,7 +2459,7 @@
           continue;
         }
 
-        const applyDiagnostic = applied.applied === 0 && applied.skipped.length
+        const applyDiagnostic = applied.skipped.length
           ? "\nDetalle técnico: " + applied.skipped.slice(0, 4).join("; ")
           : "";
 
