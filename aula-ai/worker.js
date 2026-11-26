@@ -448,6 +448,14 @@ Reglas:
 - El control de destino debe ser exactamente el control_index de la caja de escritura; consulta label, placeholder, nearby_text y type para emparejarlo con la oración correspondiente.
 - Si el control tiene nearby_text, úsalo para comprobar que esa caja pertenece a la oración que estás resolviendo. En actividades de imagen + oración, devuelve fill sobre el campo de esa oración, no sobre la imagen ni sobre un contenedor decorativo.
 - Si hay un solo campo de escritura visible y una sola oración incompleta, utiliza ese campo para la respuesta. No dejes actions vacío solamente porque el campo no tenga placeholder o label.
+- NUEVO TIPO: actividad con hasta TRES respuestas por escrito en una misma pregunta.
+  - Detecta todos los campos de respuesta editables visibles (input de texto, textarea, textbox o contenteditable) que pertenezcan a la actividad. Si hay entre dos y tres campos, resuelve cada apartado y devuelve una acción "fill" independiente para cada campo que tenga una respuesta sustentada.
+  - Relaciona cada campo con su enunciado, frase, número de apartado o texto cercano; usa nearby_text, label y placeholder. Respeta el orden de lectura de los apartados cuando no haya otra asociación más clara.
+  - No escribas las tres respuestas en el primer campo cuando Cambridge muestra casillas separadas. No repitas una respuesta en diferentes campos ni envíes dos acciones fill al mismo control.
+  - Si el enunciado pide hasta tres ejemplos o respuestas pero solo hay UN campo de escritura, escribe en ese campo como máximo tres respuestas breves, separadas claramente (por ejemplo, con punto y coma), siempre que el enunciado permita varias.
+  - Si hay audio, imagen o vídeo, usa ese material junto con el texto para resolver cada apartado. No inventes información que no se escucha ni aparece.
+  - No confundas cuadros de respuesta con campos de búsqueda, inicio de sesión, navegación o controles decorativos. Usa solamente los control_index que correspondan a campos editables de la actividad.
+  - Devuelve hasta tres acciones fill, una por cada respuesta inequívoca. Si una parte no se puede resolver, deja esa casilla sin completar y explica qué información falta en stop_reason.
 - NUEVO TIPO DE ACTIVIDAD: imagen + oración con espacio para escribir.
   - Analiza conjuntamente la imagen real enviada y el texto de la oración; no resuelvas usando solo una de las dos fuentes.
   - Lee la oración completa antes y después del espacio vacío para identificar qué tipo de palabra falta (sustantivo, verbo, adjetivo, número, etc.).
@@ -572,7 +580,7 @@ ${JSON.stringify(controls)}
   if (body.precision === "high") {
     try {
       const reviewRaw = await runModel(env, [
-        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Si el enunciado dice 'Listen and choose the correct answers' (plural), evalúa cada casilla y devuelve un clic por cada respuesta correcta según el audio; no asumas que solo hay una. No pulses casillas que ya estén marcadas. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
+        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Si el enunciado dice 'Listen and choose the correct answers' (plural), evalúa cada casilla y devuelve un clic por cada respuesta correcta según el audio; no asumas que solo hay una. En una tarea con dos o tres campos de escritura, devuelve una acción fill independiente por cada campo que puedas resolver con certeza, asociándola a nearby_text y sin repetir control_index. No pulses casillas que ya estén marcadas. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
         { role:"user", content:[...content,{type:"text",text:"\\nPropuesta inicial (puede contener errores):\\n"+JSON.stringify(parsed)+"\\nResuelve independientemente y devuelve las acciones finales corregidas."}] }
       ],2200);
       const reviewed=parseFirstJsonObject(reviewRaw);
@@ -585,6 +593,54 @@ ${JSON.stringify(controls)}
     } catch(error) {
       console.warn("Aula AI second review failed:",error?.message||error);
       precisionReview="review-unavailable";
+    }
+  }
+
+  // Normalizar actividades que presentan hasta tres respuestas escritas.
+  // Cada casilla recibe como máximo una acción fill, sin permitir índices
+  // de otros controles ni duplicar escrituras en el mismo campo.
+  const writableResponseControls = controls.filter(control =>
+    !control.disabled &&
+    (
+      control.editable === true ||
+      /^(text|search|email|number|tel|url|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+    )
+  );
+  const multiWrittenInstruction =
+    /(write|type|complete|answer|fill in|give|describe|write down|escribe|completa|responde|contesta)/i.test(pageText);
+  const isMultiWrittenResponse =
+    writableResponseControls.length >= 2 &&
+    writableResponseControls.length <= 3 &&
+    multiWrittenInstruction;
+
+  if (isMultiWrittenResponse) {
+    const allowedIndices = new Set(
+      writableResponseControls.map(control => Number(control.control_index))
+    );
+    const usedIndices = new Set();
+    const normalizedActions = [];
+
+    for (const action of Array.isArray(parsed.actions) ? parsed.actions : []) {
+      if (action.action !== "fill") {
+        normalizedActions.push(action);
+        continue;
+      }
+
+      const index = Number(action.control_index);
+      if (!allowedIndices.has(index)) continue;
+      if (usedIndices.has(index)) continue;
+      if (!String(action.value || "").trim()) continue;
+      if (usedIndices.size >= 3) continue;
+
+      usedIndices.add(index);
+      normalizedActions.push(action);
+    }
+
+    parsed.actions = normalizedActions;
+    if (usedIndices.size < writableResponseControls.length) {
+      parsed.summary = (parsed.summary || "Actividad de respuestas escritas.") +
+        " Campos escritos con respuesta confirmada: " + usedIndices.size +
+        " de " + writableResponseControls.length + ".";
     }
   }
 
