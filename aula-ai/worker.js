@@ -576,23 +576,98 @@ ${JSON.stringify(controls)}
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("La IA no devolvió un objeto de respuestas válido.");
   }
-  let precisionReview = "normal";
-  if (body.precision === "high") {
+
+  const isListeningTextGap =
+    /listen\\s+and\\s+complete/i.test(pageText) &&
+    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
+
+  // Mantener precisión alta sin duplicar cada consulta: revisar por segunda
+  // vez solo actividades complejas, ambiguas o con varias respuestas.
+  const proposedActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+  const checkboxControls = controls.filter(control =>
+    /checkbox/i.test(String(control.type || "")) ||
+    /checkbox/i.test(String(control.role || ""))
+  );
+  const writableControls = controls.filter(control =>
+    !control.disabled && (
+      control.editable === true ||
+      /^(text|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+    )
+  );
+  const multiSelectPrompt =
+    /choose\\s+all|select\\s+all|all\\s+that\\s+apply|choose\\s+the\\s+correct\\s+answers|select\\s+the\\s+correct\\s+answers|more\\s+than\\s+one|marca\\s+todas|varias\\s+respuestas/i.test(pageText);
+  const lowConfidence = proposedActions.some(action =>
+    Number.isFinite(Number(action.confidence)) &&
+    Number(action.confidence) > 0 &&
+    Number(action.confidence) < 0.82
+  );
+  const needsIndependentReview =
+    !!parsed.stop_reason ||
+    (proposedActions.length === 0 && (controls.length > 0 || images.length > 0 || !!audioText)) ||
+    lowConfidence ||
+    proposedActions.length >= 2 ||
+    isListeningTextGap ||
+    (multiSelectPrompt && checkboxControls.length >= 2) ||
+    (writableControls.length >= 2 && writableControls.length <= 3) ||
+    (audioText && (
+      (multiSelectPrompt && checkboxControls.length >= 2) ||
+      writableControls.length >= 2 ||
+      proposedActions.length >= 2
+    )) ||
+    (images.length > 0 && writableControls.length > 0);
+
+  let precisionReview = body.precision === "high"
+    ? "adaptive-skipped-simple"
+    : "normal";
+
+  if (body.precision === "high" && needsIndependentReview) {
     try {
+      // La revisión usa un resumen compacto del material y limita la salida.
+      // Solo vuelve a enviar imágenes en los casos complejos que requieren
+      // una segunda interpretación visual.
+      const reviewControls = controls.map(control => ({
+        control_index: control.control_index,
+        type: control.type,
+        label: control.label,
+        nearby_text: control.nearby_text,
+        value: control.value,
+        placeholder: control.placeholder,
+        checked: control.checked,
+        disabled: control.disabled,
+        options: Array.isArray(control.options) ? control.options.slice(0, 20) : []
+      }));
+      const reviewText = [
+        "Revisa esta actividad independientemente. No aceptes automáticamente la propuesta inicial.",
+        "Devuelve únicamente JSON: {actions:[{control_index,action,value,question,explanation,confidence}],summary,stop_reason}. Usa solo índices proporcionados.",
+        "En selección múltiple, marca todas las respuestas correctas y ninguna incorrecta. No pulses casillas ya marcadas.",
+        "En varios campos escritos, una acción fill por campo, sin repetir índices. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
+        "Título: " + title,
+        "Texto e instrucciones: " + pageText.slice(0, 9000),
+        "Transcripción: " + (audioText || "(no disponible)"),
+        "Controles: " + JSON.stringify(reviewControls),
+        "Propuesta inicial para verificar: " + JSON.stringify(parsed)
+      ].join("\\n\\n");
+      const reviewContent = [{ type: "text", text: reviewText }];
+      for (const image of images) {
+        reviewContent.push({ type: "text", text: "Imagen: " + image.description });
+        reviewContent.push({ type: "image_url", image_url: { url: image.dataUrl } });
+      }
       const reviewRaw = await runModel(env, [
-        { role:"system", content:"Eres un segundo revisor independiente. Resuelve de nuevo la actividad desde cero usando el material fuente. No aceptes automáticamente la propuesta inicial. Comprueba contexto, gramática, audio, imágenes y opciones. Si el enunciado dice 'Listen and choose the correct answers' (plural), evalúa cada casilla y devuelve un clic por cada respuesta correcta según el audio; no asumas que solo hay una. En una tarea con dos o tres campos de escritura, devuelve una acción fill independiente por cada campo que puedas resolver con certeza, asociándola a nearby_text y sin repetir control_index. No pulses casillas que ya estén marcadas. Devuelve únicamente JSON válido con actions, summary y stop_reason. Usa exclusivamente los control_index proporcionados." },
-        { role:"user", content:[...content,{type:"text",text:"\\nPropuesta inicial (puede contener errores):\\n"+JSON.stringify(parsed)+"\\nResuelve independientemente y devuelve las acciones finales corregidas."}] }
-      ],2200);
-      const reviewed=parseFirstJsonObject(reviewRaw);
-      if(reviewed && Array.isArray(reviewed.actions) && reviewed.actions.length) {
-        parsed.actions=reviewed.actions;
-        parsed.summary=reviewed.summary || "Respuesta revisada por un segundo análisis independiente.";
-        parsed.stop_reason=reviewed.stop_reason || "";
-        precisionReview="double-checked";
-      } else precisionReview="review-unavailable";
-    } catch(error) {
-      console.warn("Aula AI second review failed:",error?.message||error);
-      precisionReview="review-unavailable";
+        { role: "system", content: "Eres el revisor independiente de Aula AI. Comprueba las respuestas y los índices de destino. No inventes información." },
+        { role: "user", content: reviewContent }
+      ], 1200);
+      const reviewed = parseFirstJsonObject(reviewRaw);
+      if (reviewed && Array.isArray(reviewed.actions) && reviewed.actions.length) {
+        parsed.actions = reviewed.actions;
+        parsed.summary = reviewed.summary || "Respuesta revisada independientemente.";
+        parsed.stop_reason = reviewed.stop_reason || "";
+        precisionReview = "double-checked";
+      } else {
+        precisionReview = "review-unavailable";
+      }
+    } catch (error) {
+      console.warn("Aula AI second review failed:", error?.message || error);
+      precisionReview = "review-unavailable";
     }
   }
 
@@ -644,13 +719,7 @@ ${JSON.stringify(controls)}
     }
   }
 
-  // Listening + oración incompleta con palabras de ayuda:
-  // identificar campos editables reales aunque Cambridge los etiquete
-  // como DIV/SPAN y pedir una respuesta escrita, nunca un clic en las pistas.
-  const isListeningTextGap =
-    /listen\s+and\s+complete/i.test(pageText) &&
-    /use\s+one\s+of\s+the\s+words\s+below/i.test(pageText);
-
+  // Manejo específico del listening de completar con palabras de ayuda.
   if (isListeningTextGap) {
     const textControls = controls.filter(control =>
       control.editable === true ||
@@ -687,7 +756,9 @@ ${JSON.stringify(controls)}
 
         // Si el primer análisis no produjo la palabra, solicitar una
         // resolución breve usando la transcripción real y las pistas.
-        if (!candidate && audioText) {
+        // En precisión alta, la revisión adaptativa ya tuvo la oportunidad
+        // de resolver este listening. Evitar una tercera llamada de IA.
+        if (!candidate && audioText && body.precision !== "high") {
           const hints = controls
             .filter(control =>
               control.control_index !== target.control_index &&
