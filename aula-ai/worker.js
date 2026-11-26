@@ -578,8 +578,8 @@ ${JSON.stringify(controls)}
   }
 
   const isListeningTextGap =
-    /listen\\s+and\\s+complete/i.test(pageText) &&
-    /use\\s+one\\s+of\\s+the\\s+words\\s+below/i.test(pageText);
+    /listen\s+and\s+complete/i.test(pageText) &&
+    /use\s+one\s+of\s+the\s+words\s+below/i.test(pageText);
 
   // Mantener precisión alta sin duplicar cada consulta: revisar por segunda
   // vez solo actividades complejas, ambiguas o con varias respuestas.
@@ -595,7 +595,7 @@ ${JSON.stringify(controls)}
     )
   );
   const multiSelectPrompt =
-    /choose\\s+all|select\\s+all|all\\s+that\\s+apply|choose\\s+the\\s+correct\\s+answers|select\\s+the\\s+correct\\s+answers|more\\s+than\\s+one|marca\\s+todas|varias\\s+respuestas/i.test(pageText);
+    /choose\s+all|select\s+all|all\s+that\s+apply|choose\s+the\s+correct\s+answers|select\s+the\s+correct\s+answers|more\s+than\s+one|marca\s+todas|varias\s+respuestas/i.test(pageText);
   const lowConfidence = proposedActions.some(action =>
     Number.isFinite(Number(action.confidence)) &&
     Number(action.confidence) > 0 &&
@@ -646,7 +646,7 @@ ${JSON.stringify(controls)}
         "Transcripción: " + (audioText || "(no disponible)"),
         "Controles: " + JSON.stringify(reviewControls),
         "Propuesta inicial para verificar: " + JSON.stringify(parsed)
-      ].join("\\n\\n");
+      ].join("\n\n");
       const reviewContent = [{ type: "text", text: reviewText }];
       for (const image of images) {
         reviewContent.push({ type: "text", text: "Imagen: " + image.description });
