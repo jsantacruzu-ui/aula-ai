@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.41
+// @version      0.3.42
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -3085,7 +3085,8 @@
             Reproducir y escuchar audio automáticamente
           </p>
           <label class="small" for="precision">Precisión de respuestas</label>
-          <select id="precision"><option value="normal">Normal</option><option value="high" selected>Alta (doble comprobación)</option></select>
+          <select id="precision"><option value="normal">Normal</option><option value="high" selected>Alta (revisión adaptativa)</option></select>
+          <p class="small">La segunda revisión se activa en ejercicios complejos o dudosos para ahorrar consumo sin descuidar las preguntas difíciles.</p>
           <p class="small"><input id="verifyAnswers" type="checkbox" checked> Verificar que las respuestas queden colocadas</p>
           <p class="small">Historial de errores activado. Se guarda localmente en este navegador.</p>
           <button class="action secondary" id="showHistory">Ver historial de respuestas</button>
