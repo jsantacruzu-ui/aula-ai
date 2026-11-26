@@ -598,7 +598,6 @@ ${JSON.stringify(controls)}
     /choose\s+all|select\s+all|all\s+that\s+apply|choose\s+the\s+correct\s+answers|select\s+the\s+correct\s+answers|more\s+than\s+one|marca\s+todas|varias\s+respuestas/i.test(pageText);
   const lowConfidence = proposedActions.some(action =>
     Number.isFinite(Number(action.confidence)) &&
-    Number(action.confidence) > 0 &&
     Number(action.confidence) < 0.82
   );
   const needsIndependentReview =
@@ -608,7 +607,7 @@ ${JSON.stringify(controls)}
     proposedActions.length >= 2 ||
     isListeningTextGap ||
     (multiSelectPrompt && checkboxControls.length >= 2) ||
-    (writableControls.length >= 2 && writableControls.length <= 3) ||
+    writableControls.length >= 2 ||
     (audioText && (
       (multiSelectPrompt && checkboxControls.length >= 2) ||
       writableControls.length >= 2 ||
