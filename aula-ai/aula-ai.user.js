@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.42
+// @version      0.3.43
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -700,7 +700,7 @@
             const fieldsInside = ancestor.querySelectorAll(
               'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),textarea,[contenteditable="true"],[role="textbox"]'
             ).length;
-            if (candidateText.length >= 8 && candidateText.length <= 360 && fieldsInside <= 1) {
+            if (candidateText.length >= 8 && candidateText.length <= 900 && fieldsInside <= 3) {
               nearbyText = candidateText;
               break;
             }
@@ -766,7 +766,7 @@
           modelId: element.getAttribute("data-model-id") || "",
           expanded: element.getAttribute("aria-expanded"),
           label: String(label).trim().slice(0, 300),
-          nearby_text: nearbyText.slice(0, 360),
+          nearby_text: nearbyText.slice(0, 600),
           value: element.value || "",
           placeholder:
             element.getAttribute("placeholder") || "",
@@ -842,6 +842,23 @@
         options: [],
         disabled: !!target.disabled
       });
+    });
+
+    // Identificar el orden visual de los campos de escritura para que
+    // el Worker pueda emparejar la primera, segunda y tercera respuesta.
+    const writingControls = controls.filter(control =>
+      !control.disabled &&
+      (
+        control.editable === true ||
+        /^(text|number|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+      ) &&
+      !/(search|email|password|username|login|correo|contraseña|buscar)/i.test(
+        String(control.label || "") + " " + String(control.placeholder || "")
+      )
+    );
+    writingControls.forEach((control, index) => {
+      control.text_field_order = index + 1;
+      control.text_field_count = writingControls.length;
     });
 
     return {
