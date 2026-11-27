@@ -449,13 +449,15 @@ Reglas:
 - Si el control tiene nearby_text, úsalo para comprobar que esa caja pertenece a la oración que estás resolviendo. En actividades de imagen + oración, devuelve fill sobre el campo de esa oración, no sobre la imagen ni sobre un contenedor decorativo.
 - Si hay un solo campo de escritura visible y una sola oración incompleta, utiliza ese campo para la respuesta. No dejes actions vacío solamente porque el campo no tenga placeholder o label.
 - NUEVO TIPO: actividad con hasta TRES respuestas por escrito en una misma pregunta.
-  - Detecta todos los campos de respuesta editables visibles (input de texto, textarea, textbox o contenteditable) que pertenezcan a la actividad. Si hay entre dos y tres campos, resuelve cada apartado y devuelve una acción "fill" independiente para cada campo que tenga una respuesta sustentada.
-  - Relaciona cada campo con su enunciado, frase, número de apartado o texto cercano; usa nearby_text, label y placeholder. Respeta el orden de lectura de los apartados cuando no haya otra asociación más clara.
-  - No escribas las tres respuestas en el primer campo cuando Cambridge muestra casillas separadas. No repitas una respuesta en diferentes campos ni envíes dos acciones fill al mismo control.
-  - Si el enunciado pide hasta tres ejemplos o respuestas pero solo hay UN campo de escritura, escribe en ese campo como máximo tres respuestas breves, separadas claramente (por ejemplo, con punto y coma), siempre que el enunciado permita varias.
+  - Detecta los campos editables que pertenezcan a la actividad y comprueba sus metadatos text_field_order y text_field_count.
+  - Si hay dos o tres campos, devuelve una acción "fill" independiente para cada campo que pueda resolverse. El campo con text_field_order 1 corresponde al primer apartado/casilla en orden de lectura, el 2 al segundo y el 3 al tercero, salvo que label, placeholder o nearby_text indiquen claramente otra asociación.
+  - Cuando varios campos compartan el mismo nearby_text porque Cambridge los coloca en un único contenedor, utiliza text_field_order para distinguirlos. No envíes las tres respuestas al primer campo.
+  - Comprueba cada respuesta contra su pregunta concreta. No repitas la misma respuesta en varios campos, no dupliques control_index y no escribas explicaciones dentro de las casillas.
+  - Si hay tres espacios, intenta completar los tres, pero solamente cuando cada respuesta esté sustentada por la consigna, el contexto, el audio o las imágenes. Si un apartado no puede resolverse, deja solo ese espacio vacío y explica qué información falta.
+  - Si el enunciado pide tres ejemplos pero solo hay UN campo, escribe hasta tres respuestas breves separadas claramente únicamente cuando la consigna admita varias respuestas en el mismo campo.
   - Si hay audio, imagen o vídeo, usa ese material junto con el texto para resolver cada apartado. No inventes información que no se escucha ni aparece.
-  - No confundas cuadros de respuesta con campos de búsqueda, inicio de sesión, navegación o controles decorativos. Usa solamente los control_index que correspondan a campos editables de la actividad.
-  - Devuelve hasta tres acciones fill, una por cada respuesta inequívoca. Si una parte no se puede resolver, deja esa casilla sin completar y explica qué información falta en stop_reason.
+  - No confundas cuadros de respuesta con campos de búsqueda, inicio de sesión, navegación o controles decorativos. Usa solamente los control_index de campos editables de la actividad.
+  - Devuelve hasta tres acciones fill, una por cada casilla, en orden y sin repetir índices.
 - NUEVO TIPO DE ACTIVIDAD: imagen + oración con espacio para escribir.
   - Analiza conjuntamente la imagen real enviada y el texto de la oración; no resuelvas usando solo una de las dos fuentes.
   - Lee la oración completa antes y después del espacio vacío para identificar qué tipo de palabra falta (sustantivo, verbo, adjetivo, número, etc.).
@@ -589,9 +591,13 @@ ${JSON.stringify(controls)}
     /checkbox/i.test(String(control.role || ""))
   );
   const writableControls = controls.filter(control =>
-    !control.disabled && (
+    !control.disabled &&
+    (
       control.editable === true ||
-      /^(text|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+      /^(text|number|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+    ) &&
+    !/(search|email|password|username|login|correo|contraseña|buscar)/i.test(
+      String(control.label || "") + " " + String(control.placeholder || "")
     )
   );
   const multiSelectPrompt =
@@ -633,13 +639,15 @@ ${JSON.stringify(controls)}
         placeholder: control.placeholder,
         checked: control.checked,
         disabled: control.disabled,
+        text_field_order: control.text_field_order,
+        text_field_count: control.text_field_count,
         options: Array.isArray(control.options) ? control.options.slice(0, 20) : []
       }));
       const reviewText = [
         "Revisa esta actividad independientemente. No aceptes automáticamente la propuesta inicial.",
         "Devuelve únicamente JSON: {actions:[{control_index,action,value,question,explanation,confidence}],summary,stop_reason}. Usa solo índices proporcionados.",
         "En selección múltiple, marca todas las respuestas correctas y ninguna incorrecta. No pulses casillas ya marcadas.",
-        "En varios campos escritos, una acción fill por campo, sin repetir índices. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
+        "En dos o tres campos escritos, completa todos los que tengan respuesta sustentada: una acción fill por campo, usando text_field_order 1, 2 y 3 para respetar el orden de lectura cuando nearby_text sea compartido. No repitas índices. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
         "Título: " + title,
         "Texto e instrucciones: " + pageText.slice(0, 9000),
         "Transcripción: " + (audioText || "(no disponible)"),
