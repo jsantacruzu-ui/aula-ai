@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.44
+// @version      0.3.45
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -718,6 +718,21 @@
               break;
             }
           }
+        } else if (tag === "select" || customDropdown) {
+          // Dar a cada desplegable el contexto de la frase que completa.
+          // Cambridge suele agrupar varios huecos dentro de un mismo párrafo.
+          let ancestor = element.parentElement;
+          for (let depth = 0; ancestor && depth < 7; depth++, ancestor = ancestor.parentElement) {
+            const candidateText = String(ancestor.innerText || ancestor.textContent || "")
+              .replace(/\\s+/g, " ").trim();
+            const selectCount = ancestor.querySelectorAll(
+              'select,[role="combobox"],[aria-haspopup="listbox"],[aria-haspopup="menu"]'
+            ).length;
+            if (candidateText.length >= 12 && candidateText.length <= 1200 && selectCount <= 3) {
+              nearbyText = candidateText;
+              break;
+            }
+          }
         }
 
         controls.push({
@@ -861,6 +876,15 @@
     writingControls.forEach((control, index) => {
       control.text_field_order = index + 1;
       control.text_field_count = writingControls.length;
+    });
+
+    // Orden y cantidad de desplegables para que la IA no mezcle sus opciones.
+    const dropdownControls = controls.filter(control =>
+      control.type === "select" || control.dropdown === true || control.type === "combobox"
+    );
+    dropdownControls.forEach((control, index) => {
+      control.select_order = index + 1;
+      control.select_count = dropdownControls.length;
     });
 
     return {
