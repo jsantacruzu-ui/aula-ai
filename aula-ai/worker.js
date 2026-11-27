@@ -685,15 +685,17 @@ ${JSON.stringify(controls)}
     !control.disabled &&
     (
       control.editable === true ||
-      /^(text|search|email|number|tel|url|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+      /^(text|number|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
+    ) &&
+    !/(search|email|password|username|login|correo|contraseña|buscar)/i.test(
+      String(control.type || "") + " " +
+      String(control.label || "") + " " +
+      String(control.placeholder || "")
     )
   );
-  const multiWrittenInstruction =
-    /(write|type|complete|answer|fill in|give|describe|write down|escribe|completa|responde|contesta)/i.test(pageText);
   const isMultiWrittenResponse =
     writableResponseControls.length >= 2 &&
-    writableResponseControls.length <= 3 &&
-    multiWrittenInstruction;
+    writableResponseControls.length <= 3;
 
   if (isMultiWrittenResponse) {
     const allowedIndices = new Set(
