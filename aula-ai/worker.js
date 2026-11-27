@@ -470,6 +470,9 @@ Reglas:
   - Si hay varias casillas de texto, relaciona cada una con su oración cercana y devuelve una acción fill para cada respuesta inequívoca.
   - Si la imagen o la oración no se capturó/leyó con suficiente claridad, no adivines; indica qué pista falta en stop_reason.
 - NUEVO TIPO: completar conversaciones o diálogos mediante VARIOS menús desplegables.
+  - Prioriza todos los controles type "select" detectados: cada uno representa un hueco independiente, aunque compartan el mismo párrafo.
+  - Usa select_order/select_count y nearby_text para asociar cada menú con su posición en el diálogo. Si nearby_text se repite, usa el orden visual y la frase completa.
+  - Antes de responder, comprueba que cada value exista exactamente en options del mismo control. Devuelve una acción select por cada hueco resoluble.
   - Lee todas las intervenciones de la conversación y conserva el contexto entre las frases (por ejemplo, una pregunta sobre el verano y la respuesta "It'll be busy").
   - Cada control type "select" es un desplegable HTML nativo independiente. Revisa su lista options y elige la opción exacta más adecuada para ESE espacio.
   - Devuelve una acción "select" por CADA desplegable que puedas resolver, no solo para el primero. No dejes sin responder los demás espacios de la misma conversación.
@@ -586,6 +589,9 @@ ${JSON.stringify(controls)}
   // Mantener precisión alta sin duplicar cada consulta: revisar por segunda
   // vez solo actividades complejas, ambiguas o con varias respuestas.
   const proposedActions = Array.isArray(parsed.actions) ? parsed.actions : [];
+  const dropdownControls = controls.filter(control =>
+    control.type === "select" || control.dropdown === true || control.type === "combobox"
+  );
   const checkboxControls = controls.filter(control =>
     /checkbox/i.test(String(control.type || "")) ||
     /checkbox/i.test(String(control.role || ""))
@@ -611,6 +617,7 @@ ${JSON.stringify(controls)}
     (proposedActions.length === 0 && (controls.length > 0 || images.length > 0 || !!audioText)) ||
     lowConfidence ||
     proposedActions.length >= 2 ||
+    dropdownControls.length >= 2 ||
     isListeningTextGap ||
     (multiSelectPrompt && checkboxControls.length >= 2) ||
     writableControls.length >= 2 ||
@@ -641,17 +648,24 @@ ${JSON.stringify(controls)}
         disabled: control.disabled,
         text_field_order: control.text_field_order,
         text_field_count: control.text_field_count,
+        select_order: control.select_order,
+        select_count: control.select_count,
+        dropdown: control.dropdown,
+        expanded: control.expanded,
         options: Array.isArray(control.options) ? control.options.slice(0, 20) : []
       }));
       const reviewText = [
         "Revisa esta actividad independientemente. No aceptes automáticamente la propuesta inicial.",
         "Devuelve únicamente JSON: {actions:[{control_index,action,value,question,explanation,confidence}],summary,stop_reason}. Usa solo índices proporcionados.",
         "En selección múltiple, marca todas las respuestas correctas y ninguna incorrecta. No pulses casillas ya marcadas.",
+        "MODO DESPLEGABLES: si hay controles type select, resuelve cada select por separado y devuelve una acción select por cada hueco resoluble. El value debe coincidir exactamente con el texto o value de una opción de ESE control. Usa options, nearby_text, label, select_order y el texto completo para no mezclar huecos. Si hay tres selects, intenta responder los tres; no devuelvas cero acciones si las opciones y el contexto permiten resolverlos. Nunca uses click sobre un select nativo.",
+        "Si el control es combobox personalizado, respeta dropdown=true: abre solo ese cuadro si está cerrado; si las opciones están disponibles, elige la opción exacta asociada a ese cuadro. No confundas opciones de menús distintos.",
         "En dos o tres campos escritos, completa todos los que tengan respuesta sustentada: una acción fill por campo, usando text_field_order 1, 2 y 3 para respetar el orden de lectura cuando nearby_text sea compartido. No repitas índices. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
         "Título: " + title,
         "Texto e instrucciones: " + pageText.slice(0, 9000),
         "Transcripción: " + (audioText || "(no disponible)"),
         "Controles: " + JSON.stringify(reviewControls),
+        "Desplegables detectados (resuelve cada uno): " + JSON.stringify(reviewControls.filter(control => control.type === "select" || control.dropdown === true || control.type === "combobox").map(control => ({ control_index: control.control_index, type: control.type, dropdown: control.dropdown, select_order: control.select_order, select_count: control.select_count, label: control.label, nearby_text: control.nearby_text, current_value: control.value, options: control.options }))),
         "Propuesta inicial para verificar: " + JSON.stringify(parsed)
       ].join("\n\n");
       const reviewContent = [{ type: "text", text: reviewText }];
