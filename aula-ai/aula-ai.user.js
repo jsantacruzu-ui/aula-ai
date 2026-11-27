@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Aula AI - Asistente multimedia
 // @namespace    https://aula-ai.jsantacruzu.workers.dev/
-// @version      0.3.45
+// @version      0.3.46
 // @description  Asistente que reproduce y escucha audio, analiza imágenes y vídeos y responde actividades.
 // @author       Aula AI
 // @homepageURL  https://aula-ai.jsantacruzu.workers.dev/
@@ -778,6 +778,13 @@
             ? "drop-target"
             : "",
           className: className.slice(0, 180),
+          // Señal para actividades de formar palabras haciendo clic en fichas/letras.
+          letter_candidate:
+            pointerClickable &&
+            /^[a-zñáéíóúü]$/i.test(String(label || element.innerText || element.textContent || "").trim()) &&
+            !isTextEntry &&
+            !isCheckboxControl,
+          letter_text: String(label || element.innerText || element.textContent || "").trim().slice(0, 4),
           modelId: element.getAttribute("data-model-id") || "",
           expanded: element.getAttribute("aria-expanded"),
           label: String(label).trim().slice(0, 300),
