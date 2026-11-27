@@ -450,8 +450,10 @@ Reglas:
 - Si hay un solo campo de escritura visible y una sola oración incompleta, utiliza ese campo para la respuesta. No dejes actions vacío solamente porque el campo no tenga placeholder o label.
 - NUEVO TIPO: actividad con hasta TRES respuestas por escrito en una misma pregunta.
   - Detecta los campos editables que pertenezcan a la actividad y comprueba sus metadatos text_field_order y text_field_count.
-  - Si hay dos o tres campos, devuelve una acción "fill" independiente para cada campo que pueda resolverse. El campo con text_field_order 1 corresponde al primer apartado/casilla en orden de lectura, el 2 al segundo y el 3 al tercero, salvo que label, placeholder o nearby_text indiquen claramente otra asociación.
-  - Cuando varios campos compartan el mismo nearby_text porque Cambridge los coloca en un único contenedor, utiliza text_field_order para distinguirlos. No envíes las tres respuestas al primer campo.
+  - Si hay dos o tres campos, devuelve una acción "fill" independiente para CADA campo que pueda resolverse. El campo con text_field_order 1 corresponde al primer apartado/casilla en orden de lectura, el 2 al segundo y el 3 al tercero, salvo que label, placeholder o nearby_text indiquen claramente otra asociación.
+  - Antes de generar las acciones, crea mentalmente una tabla de correspondencia: text_field_order, nearby_text/label, pregunta exacta, respuesta. Resuelve cada pregunta por separado; no reutilices la respuesta de otra casilla.
+  - Cuando varios campos compartan el mismo nearby_text porque Cambridge los coloca en un único contenedor, utiliza text_field_order y el texto de la página para distinguirlos. No envíes las tres respuestas al primer campo.
+  - Devuelve exactamente un fill por cada campo respondible, con índices distintos y ordenados por text_field_order. Si una casilla ya contiene una respuesta correcta, no la sobrescribas. Si no puedes resolver una, explica cuál y por qué; no omitas silenciosamente las otras.
   - Comprueba cada respuesta contra su pregunta concreta. No repitas la misma respuesta en varios campos, no dupliques control_index y no escribas explicaciones dentro de las casillas.
   - Si hay tres espacios, intenta completar los tres, pero solamente cuando cada respuesta esté sustentada por la consigna, el contexto, el audio o las imágenes. Si un apartado no puede resolverse, deja solo ese espacio vacío y explica qué información falta.
   - Si el enunciado pide tres ejemplos pero solo hay UN campo, escribe hasta tres respuestas breves separadas claramente únicamente cuando la consigna admita varias respuestas en el mismo campo.
@@ -486,6 +488,14 @@ Reglas:
   - En una conversación con dos o más cuadros, resuelve TODOS los espacios, uno por uno. No consideres terminada la tarea después del primer desplegable.
   - No confundas el menú de un cuadro con el de otro; nunca selecciones una opción perteneciente a un menú distinto.
   - No devuelvas click sobre el propio cuadro cuando sus opciones ya están abiertas y visibles.
+- NUEVO TIPO: formar una palabra ordenando letras mediante clics.
+  - Activa este modo solamente cuando la consigna o el texto visible indique formar/construir/deletrear una palabra, ordenar letras, unscramble, spell the word, put the letters in order o similar, y existan controles letter_candidate.
+  - Trata cada ficha de una sola letra como una pieza independiente. Interpreta primero la imagen/pista y determina la palabra completa antes de hacer clic.
+  - Devuelve una acción "click" por cada letra, en el orden exacto en que debe construirse la palabra. Usa el control_index de la ficha física correspondiente; no escribas la palabra completa en una sola ficha.
+  - Si una letra se repite, selecciona fichas distintas para cada aparición. No repitas el mismo control_index ni inventes letras que no estén disponibles.
+  - No ordenes alfabéticamente: ordena para formar la palabra que responde a la pista. Respeta el idioma de la actividad.
+  - Si hay más fichas que letras necesarias, deja sin pulsar las sobrantes. Si no puedes identificar la palabra con seguridad, no hagas clic y explica la pista que falta.
+  - No actives este modo para preguntas de opción múltiple que casualmente muestran letras sueltas; exige una consigna de formar o deletrear palabras.
 - Para radios, casillas y opciones interactivas usa click.
 - NUEVO TIPO: selección múltiple mediante casillas (checkbox).
   - La instrucción "Listen and choose the correct answers" (answers en plural) indica una actividad de selección múltiple: evalúa cada opción y marca TODAS las que coincidan con el audio. No presupongas que solo hay una ni que deben marcarse todas.
@@ -648,6 +658,9 @@ ${JSON.stringify(controls)}
         disabled: control.disabled,
         text_field_order: control.text_field_order,
         text_field_count: control.text_field_count,
+        letter_candidate: control.letter_candidate,
+        letter_text: control.letter_text,
+        className: control.className,
         select_order: control.select_order,
         select_count: control.select_count,
         dropdown: control.dropdown,
@@ -660,7 +673,8 @@ ${JSON.stringify(controls)}
         "En selección múltiple, marca todas las respuestas correctas y ninguna incorrecta. No pulses casillas ya marcadas.",
         "MODO DESPLEGABLES: si hay controles type select, resuelve cada select por separado y devuelve una acción select por cada hueco resoluble. El value debe coincidir exactamente con el texto o value de una opción de ESE control. Usa options, nearby_text, label, select_order y el texto completo para no mezclar huecos. Si hay tres selects, intenta responder los tres; no devuelvas cero acciones si las opciones y el contexto permiten resolverlos. Nunca uses click sobre un select nativo.",
         "Si el control es combobox personalizado, respeta dropdown=true: abre solo ese cuadro si está cerrado; si las opciones están disponibles, elige la opción exacta asociada a ese cuadro. No confundas opciones de menús distintos.",
-        "En dos o tres campos escritos, completa todos los que tengan respuesta sustentada: una acción fill por campo, usando text_field_order 1, 2 y 3 para respetar el orden de lectura cuando nearby_text sea compartido. No repitas índices. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
+        "En dos o tres campos escritos, crea una correspondencia individual text_field_order -> pregunta -> respuesta y devuelve un fill distinto para cada campo resoluble. No omitas silenciosamente el segundo o tercer campo, no repitas índices ni pongas varias respuestas en una sola casilla. En listening, usa la transcripción; en imagen, combina la imagen y el texto.",
+        "Si la consigna pide formar/deletrear/ordenar letras para construir una palabra y hay controles letter_candidate, identifica la palabra con la pista y devuelve un click por letra en el orden de la palabra. Usa fichas distintas para letras repetidas; no inventes letras ni índices.",
         "Título: " + title,
         "Texto e instrucciones: " + pageText.slice(0, 9000),
         "Transcripción: " + (audioText || "(no disponible)"),
