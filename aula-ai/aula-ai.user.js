@@ -853,7 +853,9 @@
         /^(text|number|textarea|textbox|contenteditable)$/i.test(String(control.type || ""))
       ) &&
       !/(search|email|password|username|login|correo|contraseña|buscar)/i.test(
-        String(control.label || "") + " " + String(control.placeholder || "")
+        String(control.type || "") + " " +
+        String(control.label || "") + " " +
+        String(control.placeholder || "")
       )
     );
     writingControls.forEach((control, index) => {
